@@ -3,10 +3,10 @@ import subprocess
 
 # Paths to tools (adjust these to match your system)
 MAKE_MKV_PATH = "/Applications/MakeMKV.app/Contents/MacOS/makemkvcon"  # Path to MakeMKV
-HANDBRAKE_CLI_PATH = "/usr/local/bin/HandBrakeCLI"  # Path to HandBrakeCLI
+HANDBRAKE_CLI_PATH = "/opt/homebrew/bin/handbrakecli"  # Path to HandBrakeCLI
 
 # Output directory (customize this as needed)
-OUTPUT_DIR = "/Users/smuel/Desktop/DVD_Output"  # Ensure this directory is writable
+OUTPUT_DIR = "/Volumes/nfs-share/media/rippat"  # Ensure this directory is writable
 
 
 def get_titles(disc_index=0):

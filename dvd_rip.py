@@ -1,166 +1,112 @@
+#!/usr/bin/env python3
+
 import os
-import re
-import shutil
 import subprocess
-from pathlib import Path
+import sys
 
-# Paths to tools (adjust these to match your system)
+# ========= PATHS =========
+
 MAKE_MKV_PATH = "/Applications/MakeMKV.app/Contents/MacOS/makemkvcon"
-HANDBRAKE_CLI_PATH = "/opt/homebrew/bin/HandBrakeCLI"  # OBS: brukar heta HandBrakeCLI (caps)
+HANDBRAKE_CLI_PATH = "/opt/homebrew/bin/HandBrakeCLI"
 
-# Output directory (final destination)
-OUTPUT_DIR = "/Volumes/nfs-share/media/rippat"
+# Base output directory (temporary MKV + final files)
+OUTPUT_BASE_DIR = "/Volumes/nfs-share/media/rippat"
 
-# Work directory (local temp is much faster than encoding from NFS)
-WORK_DIR = "/tmp/makemkv_rips"
+# HandBrake preset (Apple Silicon-friendly)
+HANDBRAKE_PRESET = "HQ 1080p30 Surround"
 
+# ========= HELPERS =========
 
-def run(cmd, check=True):
-    """Run a command and return stdout (text)."""
+def run_command(cmd, capture_output=False):
     print("\n>>>", " ".join(cmd))
-    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    if check and p.returncode != 0:
-        print(p.stdout)
-        raise RuntimeError(f"Command failed with exit code {p.returncode}")
-    return p.stdout
+    return subprocess.run(
+        cmd,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE if capture_output else None,
+        stderr=subprocess.STDOUT
+    )
 
 
-def parse_makemkv_info_for_longest_title(info_text: str) -> str:
-    """
-    Parse MakeMKV 'info disc:X' output and return the title id of the longest title.
-    MakeMKV has lines like:
-      TINFO:0,9,0,"7345"
-    where the second field '9' is duration in seconds.
-    """
-    # Map title_id -> length_seconds
-    lengths = {}
+# ========= MAKEMKV =========
 
-    for line in info_text.splitlines():
-        # Example: TINFO:0,9,0,"7345"
-        if line.startswith("TINFO:"):
-            # Extract title_id and field_id and value
-            m = re.match(r'TINFO:(\d+),(\d+),\d+,"([^"]*)"', line)
-            if not m:
-                continue
-            title_id = m.group(1)
-            field_id = m.group(2)
-            value = m.group(3)
+def rip_title_with_makemkv(title_id, output_dir, disc_index=0):
+    print(f"\n🎬 Ripping title #{title_id} with MakeMKV...")
 
-            # field 9 = length in seconds (for DVD/BD usually)
-            if field_id == "9":
-                try:
-                    lengths[title_id] = int(value)
-                except ValueError:
-                    pass
+    cmd = [
+        MAKE_MKV_PATH,
+        "mkv",
+        f"disc:{disc_index}",
+        str(title_id),
+        output_dir
+    ]
 
-    if not lengths:
-        raise RuntimeError("Could not find any title lengths in MakeMKV output.")
-
-    longest = max(lengths, key=lengths.get)
-    print(f"\nSelected longest title: {longest} ({lengths[longest]} seconds)")
-    return longest
+    run_command(cmd)
+    print("✅ MakeMKV ripping completed")
 
 
-def get_longest_title(disc_index=0) -> str:
-    print("Fetching disc info from MakeMKV...")
-    info_command = [MAKE_MKV_PATH, "info", f"disc:{disc_index}"]
-    output = run(info_command, check=True)
-    return parse_makemkv_info_for_longest_title(output)
+# ========= HANDBRAKE =========
 
-
-def rip_title_to_workdir(title_id: str, disc_index=0) -> Path:
-    """
-    Rip a specific title to WORK_DIR using MakeMKV.
-    Returns path to the ripped MKV file.
-    """
-    work = Path(WORK_DIR)
-    work.mkdir(parents=True, exist_ok=True)
-
-    print(f"\nRipping title {title_id} to {work} ...")
-    cmd = [MAKE_MKV_PATH, "mkv", f"disc:{disc_index}", title_id, str(work)]
-    run(cmd, check=True)
-
-    # MakeMKV usually outputs into a subfolder like WORK_DIR/title00/...
-    # We'll just find the newest mkv under WORK_DIR.
-    mkvs = sorted(work.rglob("*.mkv"), key=lambda p: p.stat().st_mtime, reverse=True)
-    if not mkvs:
-        raise RuntimeError("No MKV files found after ripping. MakeMKV may have failed.")
-    ripped = mkvs[0]
-    print(f"Ripped file: {ripped}")
-    return ripped
-
-
-def transcode_with_handbrake(input_file: Path, output_file: Path):
-    """
-    Transcode using Apple VideoToolbox (M2) and keep audio/subtitles properly.
-    - All audio tracks
-    - All subtitles as softsubs
-    - No burn-in
-    """
-    output_file.parent.mkdir(parents=True, exist_ok=True)
+def compress_with_handbrake(input_file, output_file):
+    print(f"\n🎞 Compressing with HandBrake: {input_file}")
 
     cmd = [
         HANDBRAKE_CLI_PATH,
-        "-i", str(input_file),
-        "-o", str(output_file),
+        "-i", input_file,
+        "-o", output_file,
+        "--preset", HANDBRAKE_PRESET
 
-        # Container: mkv is fine (HandBrake will choose based on extension)
-        "--format", "av_mkv",
-
-        # Video: HEVC via VideoToolbox (Apple Silicon)
-        "--encoder", "vt_h265",
-        "--quality", "22",
-
-        # Keep DVD-ish geometry sane (don’t force silly upscale rules)
-        "--loose-anamorphic",
-
-        # Audio: include all tracks, prefer passthrough when possible
-        "--all-audio",
-        "--audio-copy-mask", "aac,ac3,eac3,dts,truehd,dtshd",
-        "--audio-fallback", "aac",
-
-        # Subtitles: include all as softsubs, never burn
+        # ✅ SUBTITLES
         "--all-subtitles",
-        "--subtitle-burned", "none",
+        "--subtitle-burned=0",
 
-        # Chapters
-        "--markers",
+        # ✅ Rekommenderat för Jellyfin
+        "--format", "mkv"
     ]
 
-    print(f"\nTranscoding to: {output_file}")
-    run(cmd, check=True)
+    run_command(cmd)
+    print("✅ HandBrake compression completed")
 
 
-def cleanup_workdir():
-    work = Path(WORK_DIR)
-    if work.exists():
-        print(f"\nCleaning up work dir: {work}")
-        shutil.rmtree(work, ignore_errors=True)
-
+# ========= MAIN =========
 
 def main():
-    # Ensure output dir exists
-    outdir = Path(OUTPUT_DIR)
-    outdir.mkdir(parents=True, exist_ok=True)
+    # Ensure output directory exists
+    os.makedirs(OUTPUT_BASE_DIR, exist_ok=True)
 
-    disc_index = 0
+    # Always use title 0 (main movie in almost all cases)
+    title_id = 0
 
-    try:
-        title_id = get_longest_title(disc_index=disc_index)
+    # Step 1: Rip DVD / Blu-ray
+    rip_title_with_makemkv(
+        title_id=title_id,
+        output_dir=OUTPUT_BASE_DIR
+    )
 
-        ripped_file = rip_title_to_workdir(title_id, disc_index=disc_index)
+    # Step 2: Find ripped MKV(s)
+    ripped_files = [
+        f for f in os.listdir(OUTPUT_BASE_DIR)
+        if f.lower().endswith(".mkv")
+    ]
 
-        # Final output name (based on ripped filename, without “compressed_” prefix)
-        final_name = ripped_file.stem + ".mkv"
-        final_output = outdir / final_name
+    if not ripped_files:
+        print("❌ No MKV files found after ripping")
+        sys.exit(1)
 
-        transcode_with_handbrake(ripped_file, final_output)
+    # Step 3: Compress each MKV
+    for mkv in ripped_files:
+        input_path = os.path.join(OUTPUT_BASE_DIR, mkv)
+        output_path = os.path.join(
+            OUTPUT_BASE_DIR,
+            mkv.replace(".mkv", ".compressed.mkv")
+        )
 
-        print(f"\n✅ Done! Final file: {final_output}")
+        compress_with_handbrake(input_path, output_path)
 
-    finally:
-        cleanup_workdir()
+    print("\n🎉 ALL DONE")
 
+
+# ========= ENTRY POINT =========
 
 if __name__ == "__main__":
     main()

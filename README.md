@@ -28,7 +28,7 @@ A window will open where you can type text commands.
 
 ## Step 2: Install required software
 
-### 1. Git (required to download this project)
+### 2.1. Git (required to download this project)
 
 Git is used to download the script from GitHub.
 
@@ -49,9 +49,8 @@ Accept that prompt and wait until installation finishes.
 
 If nothing happens, install Git manually using Homebrew (next section).
 
----
 
-### 2. Homebrew (package manager for macOS)
+### 2.2. Homebrew (package manager for macOS)
 
 Homebrew is used to install other tools easily.
 
@@ -66,9 +65,8 @@ After installation, verify Homebrew by typing:
 
 ```brew --version```
 
----
 
-### 3. MakeMKV (DVD & Blu Ray ripping)
+### 2.3. MakeMKV (DVD & Blu Ray ripping)
 
 MakeMKV is used to read DVDs and Blu rays without quality loss.
 
@@ -84,9 +82,8 @@ In **Terminal**, type **exactly**:
 If MakeMKV is installed correctly, version information will be printed.
 If you see “No such file or directory”, MakeMKV is not installed correctly.
 
----
 
-### 4. HandBrakeCLI (video transcoding)
+### 2.4. HandBrakeCLI (video transcoding)
 
 HandBrakeCLI converts the ripped video into a Jellyfin-friendly format.
 
@@ -100,9 +97,8 @@ When installation finishes, verify it by typing:
 
 ```HandBrakeCLI --version```
 
----
 
-### 5. Python
+### 2.5. Python
 
 Python is required to run the script.
 

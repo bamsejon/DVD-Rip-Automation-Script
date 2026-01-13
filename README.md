@@ -25,6 +25,37 @@ This fork significantly expands the functionality with:
 
 ---
 
+## 🌀 Vibe-coded project (powered by long conversations with local LLMs and ChatGPT)
+
+This project is unapologetically **vibe-coded**.
+
+There were no strict specifications, no formal design documents, and no predefined architecture.
+Instead, the development process consisted of:
+
+- Ripping real DVDs
+- Running into real-world edge cases
+- Iterating until things worked (and *felt* right)
+- **Long, exploratory discussions with both local LLMs and ChatGPT**
+- Refactoring ideas mid-conversation when a better approach emerged
+
+A significant part of the code was shaped through extended back-and-forth reasoning:
+questioning assumptions, validating ideas, hitting dead ends, course-correcting,
+and refining solutions over time — often across multiple long discussion sessions.
+
+Local LLMs were used whenever possible, but **ChatGPT played a crucial role simply because
+there aren’t enough GPUs available locally to run everything at the scale and speed needed**.
+Sometimes the most pragmatic solution is to offload the thinking, not the compute.
+
+If you’re looking for:
+- A rigid, spec-driven enterprise solution → this is probably not it  
+- A practical, evolving script forged through experimentation, curiosity, and real usage → you’re in the right place
+
+No specs.  
+No ceremony.  
+No spare GPUs.  
+
+Just vibes, local LLMs, ChatGPT, and working DVD rips.
+---
 ## Features
 
 - DVD ripping via MakeMKV

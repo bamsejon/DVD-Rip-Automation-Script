@@ -3,110 +3,114 @@
 import os
 import subprocess
 import sys
+import json
+import urllib.request
 
-# ========= PATHS =========
+# ========= CONFIG =========
 
 MAKE_MKV_PATH = "/Applications/MakeMKV.app/Contents/MacOS/makemkvcon"
 HANDBRAKE_CLI_PATH = "/opt/homebrew/bin/HandBrakeCLI"
 
-# Base output directory (temporary MKV + final files)
-OUTPUT_BASE_DIR = "/Volumes/nfs-share/media/rippat"
+OMDB_API_KEY = os.getenv("OMDB_API_KEY")
 
-# HandBrake preset (Apple Silicon-friendly)
+if not OMDB_API_KEY:
+    print("❌ OMDB_API_KEY not set")
+    sys.exit(1)
+
+# Base directories
+TEMP_DIR = "/Volumes/nfs-share/media/rippat/tmp"
+MOVIES_DIR = "/Volumes/nfs-share/media/movies"
+
 HANDBRAKE_PRESET = "HQ 1080p30 Surround"
 
 # ========= HELPERS =========
 
-def run_command(cmd, capture_output=False):
+def run_command(cmd):
     print("\n>>>", " ".join(cmd))
-    return subprocess.run(
-        cmd,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE if capture_output else None,
-        stderr=subprocess.STDOUT
-    )
+    subprocess.run(cmd, check=True)
 
+def omdb_lookup(title):
+    print(f"\n🔎 Looking up OMDb: {title}")
+    url = f"http://www.omdbapi.com/?t={title}&apikey={OMDB_API_KEY}"
+
+    with urllib.request.urlopen(url) as response:
+        data = json.loads(response.read().decode())
+
+    if data.get("Response") != "True":
+        print("❌ OMDb lookup failed")
+        sys.exit(1)
+
+    return data["Title"], data["Year"]
 
 # ========= MAKEMKV =========
 
-def rip_title_with_makemkv(title_id, output_dir, disc_index=0):
-    print(f"\n🎬 Ripping title #{title_id} with MakeMKV...")
+def rip_with_makemkv(title_id=0):
+    os.makedirs(TEMP_DIR, exist_ok=True)
 
     cmd = [
         MAKE_MKV_PATH,
         "mkv",
-        f"disc:{disc_index}",
+        "disc:0",
         str(title_id),
-        output_dir
+        TEMP_DIR
     ]
 
     run_command(cmd)
-    print("✅ MakeMKV ripping completed")
 
+    mkvs = [f for f in os.listdir(TEMP_DIR) if f.endswith(".mkv")]
+    if not mkvs:
+        print("❌ No MKV produced by MakeMKV")
+        sys.exit(1)
+
+    return os.path.join(TEMP_DIR, mkvs[0])
 
 # ========= HANDBRAKE =========
 
 def compress_with_handbrake(input_file, output_file):
-    print(f"\n🎞 Compressing with HandBrake: {input_file}")
-
     cmd = [
         HANDBRAKE_CLI_PATH,
         "-i", input_file,
         "-o", output_file,
         "--preset", HANDBRAKE_PRESET,
-
-        # ✅ SUBTITLES
         "--all-subtitles",
         "--subtitle-burned=0",
-
-        # ✅ Rekommenderat för Jellyfin
         "--format", "mkv"
     ]
 
     run_command(cmd)
-    print("✅ HandBrake compression completed")
-
 
 # ========= MAIN =========
 
 def main():
-    # Ensure output directory exists
-    os.makedirs(OUTPUT_BASE_DIR, exist_ok=True)
+    os.makedirs(MOVIES_DIR, exist_ok=True)
 
-    # Always use title 0 (main movie in almost all cases)
-    title_id = 0
+    # 1️⃣ Ask for movie title (first version = explicit)
+    movie_query = input("🎬 Movie title (e.g. Alien Resurrection): ").strip()
 
-    # Step 1: Rip DVD / Blu-ray
-    rip_title_with_makemkv(
-        title_id=title_id,
-        output_dir=OUTPUT_BASE_DIR
+    # 2️⃣ OMDb lookup
+    title, year = omdb_lookup(movie_query)
+    print(f"✅ Identified: {title} ({year})")
+
+    # 3️⃣ Create Jellyfin folder
+    movie_folder = f"{title} ({year})"
+    movie_path = os.path.join(MOVIES_DIR, movie_folder)
+    os.makedirs(movie_path, exist_ok=True)
+
+    output_file = os.path.join(
+        movie_path,
+        f"{title} ({year}).mkv"
     )
 
-    # Step 2: Find ripped MKV(s)
-    ripped_files = [
-        f for f in os.listdir(OUTPUT_BASE_DIR)
-        if f.lower().endswith(".mkv")
-    ]
+    # 4️⃣ Rip
+    ripped_mkv = rip_with_makemkv()
 
-    if not ripped_files:
-        print("❌ No MKV files found after ripping")
-        sys.exit(1)
+    # 5️⃣ Compress
+    compress_with_handbrake(ripped_mkv, output_file)
 
-    # Step 3: Compress each MKV
-    for mkv in ripped_files:
-        input_path = os.path.join(OUTPUT_BASE_DIR, mkv)
-        output_path = os.path.join(
-            OUTPUT_BASE_DIR,
-            mkv.replace(".mkv", ".compressed.mkv")
-        )
+    print("\n🎉 DONE")
+    print(f"📁 Jellyfin-ready at: {movie_path}")
 
-        compress_with_handbrake(input_path, output_path)
-
-    print("\n🎉 ALL DONE")
-
-
-# ========= ENTRY POINT =========
+# ========= ENTRY =========
 
 if __name__ == "__main__":
     main()

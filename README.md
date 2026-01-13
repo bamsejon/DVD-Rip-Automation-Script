@@ -218,21 +218,21 @@ This is done by editing the Python script directly.
 ### 7.1. Make sure you are in the project directory
 In Terminal, go to the project folder:
 
-```cd DVD-Rip-Automation-Script````
+```cd DVD-Rip-Automation-Script```
 
 Verify that the script exists:
 
-```ls````
+```ls```
 
 You should see a file named:
 
-```dvd_rip.py````
+```dvd_rip.py```
 
 
 ### 7.2. Open the script for editing
 Open the script using a simple terminal editor:
 
-```nano dvd_rip.py````
+```nano dvd_rip.py```
 
 The screen will switch to a text editor.
 
@@ -241,7 +241,7 @@ The screen will switch to a text editor.
 Scroll down (use the arrow keys) until you find a section that looks like this:
 
 ```TEMP_DIR = "/Volumes/Jonte/rip/tmp"```
-```MOVIES_DIR = "/Volumes/nfs-share/media/rippat/movies"````
+```MOVIES_DIR = "/Volumes/nfs-share/media/rippat/movies"```
 
 These paths control where files are stored.
 
@@ -249,7 +249,7 @@ These paths control where files are stored.
 ### 7.4. Understand what each path means
 TEMP_DIR
 
-```TEMP_DIR = "/Volumes/Jonte/rip/tmp"````
+```TEMP_DIR = "/Volumes/Jonte/rip/tmp"```
 
 This directory is used for:
 	•	Raw MKV files directly from MakeMKV
@@ -262,16 +262,16 @@ Requirements:
 
 Example alternatives: 
 
-```TEMP_DIR = "/Users/yourname/Movies/rip_tmp"````
+```TEMP_DIR = "/Users/yourname/Movies/rip_tmp"```
 
 or
 
-```TEMP_DIR = "/Volumes/ExternalSSD/rip_tmp"````
+```TEMP_DIR = "/Volumes/ExternalSSD/rip_tmp"```
 
 
 MOVIES_DIR
 
-```MOVIES_DIR = "/Volumes/nfs-share/media/rippat/movies"````
+```MOVIES_DIR = "/Volumes/nfs-share/media/rippat/movies"```
 
 This is the final output location, make sure that you have mounted your Jellyfin media folder to your mac.
 
@@ -288,7 +288,7 @@ Requirements:
 
 Example alternatives:
 
-```MOVIES_DIR = "/Volumes/media-shared/Movies"````
+```MOVIES_DIR = "/Volumes/media-shared/Movies"```
 
 or
 
@@ -304,7 +304,7 @@ Using the keyboard:
 Example:
 
 ```TEMP_DIR = "/Users/jon/Movies/dvd_tmp"```
-```MOVIES_DIR = "/Volumes/Media/Movies"  ````
+```MOVIES_DIR = "/Volumes/Media/Movies"  ```
 
 
 ### 7.6 Save and exit
@@ -319,7 +319,7 @@ You are now back in Terminal.
 ### 7.7 Verify paths exist (recommended)
 Check that the directories exists:
 
-```ls "/Users/jon/Movies"´´´
+```ls "/Users/jon/Movies"```
 
 ## Step 8: Run the script
 

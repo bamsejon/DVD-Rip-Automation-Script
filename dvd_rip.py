@@ -6,7 +6,7 @@ import sys
 import json
 import urllib.parse
 import urllib.request
-
+import re
 from dotenv import load_dotenv
 
 # ========= ENV =========
@@ -24,8 +24,9 @@ MAKE_MKV_PATH = "/Applications/MakeMKV.app/Contents/MacOS/makemkvcon"
 HANDBRAKE_CLI_PATH = "/opt/homebrew/bin/HandBrakeCLI"
 
 TEMP_DIR = "/Volumes/Jonte/rip/tmp"
-MOVIES_DIR = "/volumes/nfs-share/media/rippat/movies"
+MOVIES_DIR = "/Volumes/nfs-share/media/rippat/movies"
 
+# DVD-optimalt
 HANDBRAKE_PRESET = "HQ 720p30 Surround"
 
 # ========= HELPERS =========
@@ -44,48 +45,44 @@ def run_command(cmd, capture_output=False):
 
 def get_dvd_volume_label():
     """
-    Returns the mounted volume name for the first optical disc found (UDF / CD9660).
-    Uses diskutil to avoid guessing based on volume names or permissions.
+    Detect DVD by VIDEO_TS folder – 100% reliable.
     """
-    # List all disks
-    result = run_command(["diskutil", "list"], capture_output=True).stdout
+    for name in os.listdir("/Volumes"):
+        path = os.path.join("/Volumes", name)
+        if not os.path.ismount(path):
+            continue
 
-    # Extract disk identifiers like disk2, disk3, etc.
-    disks = []
-    for line in result.splitlines():
-        line = line.strip()
-        if line.startswith("/dev/disk"):
-            disks.append(line.split()[0].replace("/dev/", ""))
-
-    # Inspect each disk
-    for disk in disks:
-        info = run_command(["diskutil", "info", disk], capture_output=True).stdout
-
-        bundle = None
-        mount_point = None
-
-        for line in info.splitlines():
-            if "Type (Bundle):" in line:
-                bundle = line.split(":", 1)[1].strip().lower()
-            elif "Mount Point:" in line:
-                mount_point = line.split(":", 1)[1].strip()
-
-        # Optical media typically mounts as udf or cd9660
-        if bundle in ("udf", "cd9660") and mount_point and mount_point.startswith("/Volumes/"):
-            return os.path.basename(mount_point)
+        if (
+            os.path.isdir(os.path.join(path, "VIDEO_TS")) or
+            os.path.isdir(os.path.join(path, "video_ts"))
+        ):
+            return name
 
     return None
 
 def normalize_title(volume_label):
-    title = volume_label.replace("_", " ").title()
-    for token in [" Disc 1", " Disc 2", " Disc 3"]:
-        title = title.replace(token, "")
+    """
+    Sanitize ugly DVD volume names like:
+    <PADDINGTON>, [ALIEN], MOVIE_DISC_1
+    """
+    title = volume_label
+
+    # Remove common junk characters
+    title = re.sub(r"[<>[\]()]", "", title)
+
+    # Replace separators with space
+    title = title.replace("_", " ").replace(".", " ")
+
+    # Collapse whitespace
+    title = re.sub(r"\s+", " ", title)
+
     return title.strip()
 
 # ========= OMDB =========
 
 def omdb_lookup(title):
     print(f"\n🔎 OMDb lookup: {title}")
+
     query = urllib.parse.quote(title)
     url = f"https://www.omdbapi.com/?t={query}&apikey={OMDB_API_KEY}"
 
@@ -105,7 +102,15 @@ def omdb_lookup(title):
 
 def rip_with_makemkv(title_id=0):
     print("\n🎬 Ripping disc...")
-    os.makedirs(TEMP_DIR, exist_ok=True)
+
+    # Clean temp dir
+    if os.path.exists(TEMP_DIR):
+        for f in os.listdir(TEMP_DIR):
+            p = os.path.join(TEMP_DIR, f)
+            if os.path.isfile(p):
+                os.remove(p)
+    else:
+        os.makedirs(TEMP_DIR, exist_ok=True)
 
     cmd = [
         MAKE_MKV_PATH,
@@ -117,14 +122,13 @@ def rip_with_makemkv(title_id=0):
 
     run_command(cmd)
 
-    mkvs = [
-        f for f in os.listdir(TEMP_DIR)
-        if f.lower().endswith(".mkv")
-    ]
-
+    mkvs = [f for f in os.listdir(TEMP_DIR) if f.lower().endswith(".mkv")]
     if not mkvs:
         print("❌ No MKV produced by MakeMKV")
         sys.exit(1)
+
+    if len(mkvs) > 1:
+        print("⚠️ Multiple MKVs found, using first one")
 
     return os.path.join(TEMP_DIR, mkvs[0])
 
@@ -150,37 +154,39 @@ def compress_with_handbrake(input_file, output_file):
 def main():
     os.makedirs(MOVIES_DIR, exist_ok=True)
 
-    # 1️⃣ Detect DVD volume
+    # 1️⃣ Detect DVD
     dvd_label = get_dvd_volume_label()
     if not dvd_label:
-        print("❌ Could not detect DVD volume label")
+        print("❌ Could not detect DVD (VIDEO_TS missing)")
         sys.exit(1)
 
     query_title = normalize_title(dvd_label)
     print(f"🎞 Detected DVD title: {query_title}")
 
-    # 2️⃣ OMDb lookup
+    # 2️⃣ OMDb
     movie = omdb_lookup(query_title)
     title = movie["title"]
     year = movie["year"]
 
     print(f"✅ Identified: {title} ({year})")
 
-    # 3️⃣ Jellyfin movie folder
+    # 3️⃣ Jellyfin structure
     movie_folder = f"{title} ({year})"
     movie_path = os.path.join(MOVIES_DIR, movie_folder)
     os.makedirs(movie_path, exist_ok=True)
 
-    output_file = os.path.join(
-        movie_path,
-        f"{title} ({year}).mkv"
-    )
+    output_file = os.path.join(movie_path, f"{title} ({year}).mkv")
 
     # 4️⃣ Rip
     ripped_mkv = rip_with_makemkv()
 
-    # 5️⃣ Compress
+    # 5️⃣ Transcode
     compress_with_handbrake(ripped_mkv, output_file)
+
+    # 6️⃣ Cleanup
+    if os.path.exists(ripped_mkv):
+        print(f"🧹 Removing raw MKV: {ripped_mkv}")
+        os.remove(ripped_mkv)
 
     print("\n🎉 DONE")
     print(f"📁 Jellyfin-ready at: {movie_path}")

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 
 import os
-import subprocess
 import sys
 import json
+import subprocess
 import urllib.parse
 import urllib.request
 from dotenv import load_dotenv
 
-# ========= ENV =========
+# =========================================================
+# ENV
+# =========================================================
 
 load_dotenv()
 
@@ -17,7 +19,12 @@ if not OMDB_API_KEY:
     print("❌ OMDB_API_KEY not set (check .env)")
     sys.exit(1)
 
-# ========= CONFIG =========
+# =========================================================
+# PATHS / CONFIG
+# =========================================================
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OVERRIDES_PATH = os.path.join(SCRIPT_DIR, "title_overrides.json")
 
 MAKE_MKV_PATH = "/Applications/MakeMKV.app/Contents/MacOS/makemkvcon"
 HANDBRAKE_CLI_PATH = "/opt/homebrew/bin/HandBrakeCLI"
@@ -25,10 +32,12 @@ HANDBRAKE_CLI_PATH = "/opt/homebrew/bin/HandBrakeCLI"
 TEMP_DIR = "/Volumes/Jonte/rip/tmp"
 MOVIES_DIR = "/Volumes/nfs-share/media/rippat/movies"
 
-# DVD optimal preset
+# DVD preset (Blu-ray kan senare få egen)
 HANDBRAKE_PRESET = "HQ 720p30 Surround"
 
-# ========= HELPERS =========
+# =========================================================
+# HELPERS
+# =========================================================
 
 def run_command(cmd, capture_output=False):
     print("\n>>>", " ".join(cmd))
@@ -40,9 +49,24 @@ def run_command(cmd, capture_output=False):
         stderr=subprocess.STDOUT
     )
 
-# ========= DVD DETECTION =========
+# =========================================================
+# LOAD OVERRIDES
+# =========================================================
 
-def get_dvd_volume():
+def load_overrides():
+    if not os.path.exists(OVERRIDES_PATH):
+        return {}
+
+    with open(OVERRIDES_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+TITLE_OVERRIDES = load_overrides()
+
+# =========================================================
+# DISC DETECTION
+# =========================================================
+
+def detect_disc_volume():
     for name in os.listdir("/Volumes"):
         path = os.path.join("/Volumes", name)
         if not os.path.ismount(path):
@@ -50,90 +74,75 @@ def get_dvd_volume():
 
         upper = name.upper()
 
-        # Skip obvious non-discs
-        if upper.startswith(("BACKUP", "TIME MACHINE", "MACINTOSH")):
+        if upper.startswith(("BACKUP", "TIME MACHINE")):
             continue
 
-        # VIDEO_TS is the most reliable DVD indicator
-        if os.path.isdir(os.path.join(path, "VIDEO_TS")):
+        if any(x in upper for x in ["DVD", "DISC", "BD", "BLURAY", "_"]):
             return name
 
     return None
 
-def normalize_title(volume_label):
-    title = volume_label.replace("_", " ").replace("-", " ").lower()
+def normalize_volume_label(label):
+    title = label.replace("_", " ").replace(".", " ").strip()
+    title = title.replace("  ", " ")
 
-    # remove disc markers
-    for token in ["disc", "disk", "d1", "d2", "part", "vol"]:
+    for token in ["DISC 1", "DISC 2", "DISC 3", "D1", "D2"]:
         title = title.replace(token, "")
 
-    # collapse whitespace
-    title = " ".join(title.split())
-    return title
+    return title.title().strip()
 
-# ========= OMDB (FUZZY SEARCH) =========
+def detect_disc_type(volume_label):
+    upper = volume_label.upper()
+    if "BD" in upper or "BLURAY" in upper:
+        return "BLURAY"
+    return "DVD"
 
-def omdb_lookup_fuzzy(raw_title):
-    print(f"\n🔎 OMDb fuzzy search: {raw_title}")
+# =========================================================
+# OMDB
+# =========================================================
 
-    words = [
-        w for w in raw_title.split()
-        if len(w) > 2
-    ]
+def omdb_lookup_by_imdb_id(imdb_id):
+    print(f"\n🎯 OMDb lookup by IMDb ID: {imdb_id}")
+    url = f"https://www.omdbapi.com/?i={imdb_id}&apikey={OMDB_API_KEY}"
 
-    search_query = urllib.parse.quote(" ".join(words))
-    search_url = (
-        f"https://www.omdbapi.com/"
-        f"?s={search_query}&type=movie&apikey={OMDB_API_KEY}"
-    )
-
-    with urllib.request.urlopen(search_url) as response:
+    with urllib.request.urlopen(url) as response:
         data = json.loads(response.read().decode())
 
     if data.get("Response") != "True":
-        print("❌ OMDb search returned no results")
+        print(f"❌ OMDb lookup failed for IMDb ID {imdb_id}")
         sys.exit(1)
 
-    best_match = None
-    best_score = 0
+    return data
 
-    for item in data["Search"]:
-        title = item["Title"].lower()
-        score = sum(1 for w in words if w in title)
+def omdb_fuzzy_lookup(title):
+    print(f"\n🔎 OMDb fuzzy lookup: {title}")
+    query = urllib.parse.quote(title)
+    url = f"https://www.omdbapi.com/?s={query}&type=movie&apikey={OMDB_API_KEY}"
 
-        if score > best_score:
-            best_score = score
-            best_match = item
+    with urllib.request.urlopen(url) as response:
+        data = json.loads(response.read().decode())
 
-    if not best_match:
-        print("❌ No suitable OMDb match found")
+    if data.get("Response") != "True":
+        print(f"❌ OMDb search failed for '{title}'")
         sys.exit(1)
 
-    imdb_id = best_match["imdbID"]
-    detail_url = f"https://www.omdbapi.com/?i={imdb_id}&apikey={OMDB_API_KEY}"
+    imdb_id = data["Search"][0]["imdbID"]
+    return omdb_lookup_by_imdb_id(imdb_id)
 
-    with urllib.request.urlopen(detail_url) as response:
-        movie = json.loads(response.read().decode())
-
-    print(f"✅ Best match: {movie['Title']} ({movie['Year']})")
-    return {
-        "title": movie["Title"],
-        "year": movie["Year"]
-    }
-
-# ========= MAKEMKV =========
+# =========================================================
+# MAKEMKV
+# =========================================================
 
 def rip_with_makemkv(title_id=0):
-    print("\n🎬 Ripping disc...")
+    print("\n🎬 Ripping disc with MakeMKV...")
 
-    # Clean temp dir first
-    if os.path.exists(TEMP_DIR):
-        for f in os.listdir(TEMP_DIR):
-            path = os.path.join(TEMP_DIR, f)
-            if os.path.isfile(path):
-                os.remove(path)
-    else:
-        os.makedirs(TEMP_DIR, exist_ok=True)
+    os.makedirs(TEMP_DIR, exist_ok=True)
+
+    # Clean temp dir
+    for f in os.listdir(TEMP_DIR):
+        p = os.path.join(TEMP_DIR, f)
+        if os.path.isfile(p):
+            os.remove(p)
 
     cmd = [
         MAKE_MKV_PATH,
@@ -145,21 +154,19 @@ def rip_with_makemkv(title_id=0):
 
     run_command(cmd)
 
-    mkvs = [
-        f for f in os.listdir(TEMP_DIR)
-        if f.lower().endswith(".mkv")
-    ]
-
+    mkvs = [f for f in os.listdir(TEMP_DIR) if f.lower().endswith(".mkv")]
     if not mkvs:
         print("❌ No MKV produced by MakeMKV")
         sys.exit(1)
 
     return os.path.join(TEMP_DIR, mkvs[0])
 
-# ========= HANDBRAKE =========
+# =========================================================
+# HANDBRAKE
+# =========================================================
 
 def compress_with_handbrake(input_file, output_file):
-    print(f"\n🎞 Compressing: {input_file}")
+    print(f"\n🎞 Transcoding with HandBrake: {input_file}")
 
     cmd = [
         HANDBRAKE_CLI_PATH,
@@ -173,61 +180,76 @@ def compress_with_handbrake(input_file, output_file):
 
     run_command(cmd)
 
-# ========= EJECT =========
+# =========================================================
+# EJECT
+# =========================================================
 
-def eject_dvd(volume_name):
-    print(f"\n⏏️ Ejecting DVD: {volume_name}")
-    run_command(["diskutil", "eject", f"/Volumes/{volume_name}"])
+def eject_disc(volume_label):
+    print(f"\n⏏️ Ejecting disc: {volume_label}")
+    subprocess.run(["diskutil", "eject", f"/Volumes/{volume_label}"], check=False)
 
-# ========= MAIN =========
+# =========================================================
+# MAIN
+# =========================================================
 
 def main():
     os.makedirs(MOVIES_DIR, exist_ok=True)
 
-    # 1️⃣ Detect DVD
-    dvd_volume = get_dvd_volume()
-    if not dvd_volume:
-        print("❌ Could not detect DVD volume")
+    volume = detect_disc_volume()
+    if not volume:
+        print("❌ Could not detect disc volume")
         sys.exit(1)
 
-    print(f"🎞 Detected DVD volume: {dvd_volume}")
+    print(f"🎞 Detected disc volume: {volume}")
 
-    normalized = normalize_title(dvd_volume)
+    disc_type = detect_disc_type(volume)
+    print(f"💿 Disc type: {disc_type}")
+
+    normalized = normalize_volume_label(volume)
     print(f"🎬 Normalized title: {normalized}")
 
-    # 2️⃣ OMDb fuzzy lookup
-    movie = omdb_lookup_fuzzy(normalized)
-    title = movie["title"]
-    year = movie["year"]
+    # -----------------------------------------------------
+    # METADATA RESOLUTION
+    # -----------------------------------------------------
 
-    # 3️⃣ Jellyfin structure
+    if volume in TITLE_OVERRIDES:
+        imdb_id = TITLE_OVERRIDES[volume]["imdb_id"]
+        movie = omdb_lookup_by_imdb_id(imdb_id)
+    else:
+        movie = omdb_fuzzy_lookup(normalized)
+
+    title = movie["Title"]
+    year = movie["Year"]
+
+    print(f"✅ Identified: {title} ({year})")
+
+    # -----------------------------------------------------
+    # JELLYFIN STRUCTURE
+    # -----------------------------------------------------
+
     movie_folder = f"{title} ({year})"
     movie_path = os.path.join(MOVIES_DIR, movie_folder)
     os.makedirs(movie_path, exist_ok=True)
 
-    output_file = os.path.join(
-        movie_path,
-        f"{title} ({year}).mkv"
-    )
+    output_file = os.path.join(movie_path, f"{title} ({year}).mkv")
 
-    # 4️⃣ Rip
+    # -----------------------------------------------------
+    # RIP + TRANSCODE
+    # -----------------------------------------------------
+
     ripped_mkv = rip_with_makemkv()
-
-    # 5️⃣ Transcode
     compress_with_handbrake(ripped_mkv, output_file)
 
-    # 6️⃣ Cleanup temp
+    # Cleanup
     if os.path.exists(ripped_mkv):
-        print(f"🧹 Removing raw MKV: {ripped_mkv}")
         os.remove(ripped_mkv)
 
-    # 7️⃣ Eject disc
-    eject_dvd(dvd_volume)
+    eject_disc(volume)
 
     print("\n🎉 DONE")
     print(f"📁 Jellyfin-ready at: {movie_path}")
 
-# ========= ENTRY =========
+# =========================================================
 
 if __name__ == "__main__":
     main()

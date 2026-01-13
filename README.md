@@ -6,141 +6,121 @@ Insert a DVD → run the script → wait → disc ejects → movie appears in Je
 
 ---
 
-## Project origin & credit
+## 🚀 Quick start (assume you’ve never used Terminal before)
 
-This project is a fork and extended rewrite of:
-
-https://github.com/SMUELDigital/DVD-Rip-Automation-Script
-
-All credit to SMUELDigital for the original idea and foundation.
-
-This fork significantly expands the functionality with:
-- OMDb-powered title detection
-- Jellyfin-compatible folder structure (Movies/Title (Year)/Title (Year).mkv)
-- Intelligent DVD volume name normalization
-- Automatic cleanup of temporary files
-- Subtitle preservation (no burn-in)
-- macOS-specific DVD handling
-- Automatic disc eject after completion
+This section assumes **zero prior knowledge**.
+Follow the steps exactly, in order.
 
 ---
 
-## 🌀 Vibe-coded project (powered by long conversations with local LLMs and ChatGPT)
+## Step 1: Open Terminal
 
-This project is unapologetically **vibe-coded**.
+Terminal is a built-in macOS application that lets you type commands.
 
-There were no strict specifications, no formal design documents, and no predefined architecture.
-Instead, the development process consisted of:
+To open Terminal:
+1. Press **⌘ Command + Space**
+2. Type **Terminal**
+3. Press **Enter**
 
-- Ripping real DVDs
-- Running into real-world edge cases
-- Iterating until things worked (and *felt* right)
-- **Long, exploratory discussions with both local LLMs and ChatGPT**
-- Refactoring ideas mid-conversation when a better approach emerged
-
-A significant part of the code was shaped through extended back-and-forth reasoning:
-questioning assumptions, validating ideas, hitting dead ends, course-correcting,
-and refining solutions over time — often across multiple long discussion sessions.
-
-Local LLMs were used whenever possible, but **ChatGPT played a crucial role simply because
-there aren’t enough GPUs available locally to run everything at the scale and speed needed**.
-Sometimes the most pragmatic solution is to offload the thinking, not the compute.
-
-If you’re looking for:
-- A rigid, spec-driven enterprise solution → this is probably not it  
-- A practical, evolving script forged through experimentation, curiosity, and real usage → you’re in the right place
-
-No specs.  
-No ceremony.  
-No spare GPUs.  
-
-Just vibes, local LLMs, ChatGPT, and working DVD rips.
----
-## Features
-
-- DVD ripping via MakeMKV
-- Transcoding via HandBrakeCLI
-- Automatic movie identification via OMDb
-- Jellyfin-compatible folder structure
-- Keeps all subtitle tracks (DVDSUB, forced, multiple languages)
-- Keeps surround audio tracks
-- Cleans up raw ripped files after transcoding
-- Automatically ejects DVD when finished
-- Optimized for macOS (Apple Silicon and Intel)
+A window will open where you can type text commands.
 
 ---
 
-## Requirements
+## Step 2: Install required software
 
-Operating System:
-- macOS (tested on Apple Silicon, works on Intel)
+### 1. MakeMKV (DVD ripping)
 
-Hardware:
-- DVD drive (USB or internal)
+MakeMKV is used to read DVDs without quality loss.
 
----
-
-## Required software
-
-1. MakeMKV
-
-Used for ripping DVDs without quality loss.
-
-Download:
+Download and install it from:
 https://www.makemkv.com/download/
 
-Expected installation path:
-/Applications/MakeMKV.app
+After installing, we want to verify that macOS can find it.
 
-Test:
+In **Terminal**, type the following line **exactly**, then press **Enter**:
+
 /Applications/MakeMKV.app/Contents/MacOS/makemkvcon --version
 
+If MakeMKV is installed correctly, you will see version information printed.
+If you see an error saying the file does not exist, MakeMKV is not installed correctly.
+
 ---
 
-2. HandBrakeCLI
+### 2. HandBrakeCLI (video transcoding)
 
-Used for transcoding the ripped MKV into a Jellyfin-friendly format.
+HandBrakeCLI is used to convert the ripped video into a Jellyfin-friendly format.
 
-Install via Homebrew:
+We will install it using Homebrew (a package manager for macOS).
+
+First, install Homebrew if you don’t already have it.
+
+In **Terminal**, paste this line and press **Enter**:
+
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+Follow the on-screen instructions.
+
+Once Homebrew is installed, install HandBrakeCLI.
+
+In **Terminal**, type:
+
 brew install handbrake
 
-Verify:
+When installation finishes, verify it by typing:
+
 HandBrakeCLI --version
 
-Expected path on Apple Silicon:
-/opt/homebrew/bin/HandBrakeCLI
+You should see version information printed.
 
 ---
 
-3. Python
+### 3. Python
 
-Python 3.10 or newer is recommended.
+Python is required to run the script.
 
-Install if needed:
+Check if Python is already installed:
+
+python3 --version
+
+If you see a version number (for example Python 3.12.x), you’re good.
+
+If not, install Python using Homebrew:
+
 brew install python
 
 ---
 
-4. Python dependencies
+## Step 3: Download this project
 
-Install required module:
+In **Terminal**, type the following commands one line at a time:
+
+git clone https://github.com/bamsejon/DVD-Rip-Automation-Script.git
+cd DVD-Rip-Automation-Script
+
+This downloads the script and moves you into its folder.
+
+---
+
+## Step 4: Install required Python dependency
+
+This script needs one extra Python module.
+
+In **Terminal**, type:
+
 pip3 install python-dotenv
 
 ---
 
-## OMDb API Key (Required)
+## Step 5: Get an OMDb API key (required)
 
-This script uses OMDb to automatically identify movies and generate correct folder names.
+This script uses OMDb to automatically identify movies and create correct folder names.
 
 Important note:
 
-Although OMDb offers a free API tier, all development and testing of this script has been done using a paid API key.
+Although OMDb offers a free API tier, all development and testing of this script has been done using a **paid API key**.
+Free keys are rate-limited and unreliable. Correct behavior cannot be guaranteed with a free key.
 
-Free keys are rate-limited and unreliable. Correct behavior cannot be guaranteed with a free API key.
-
----
-
-Support OMDb via Patreon (Recommended)
+### Recommended: support OMDb via Patreon
 
 OMDb is maintained by a small team and relies on community support.
 
@@ -153,70 +133,114 @@ Helps keep OMDb maintained
 
 ---
 
-Create .env file
+## Step 6: Create the .env file
 
-In the same directory as dvd_rip.py, create a file named:
-.env
+We now need to store your OMDb API key.
 
-Add:
+1. Open **Finder**
+2. Go to the folder:
+   DVD-Rip-Automation-Script
+3. Create a new file named:
+   .env
+
+Yes — the file name starts with a dot.
+
+Open the file in a text editor and add this line:
+
 OMDB_API_KEY=your_api_key_here
 
-Do not commit this file. Make sure .env is listed in .gitignore.
+Replace `your_api_key_here` with your actual key.
+
+Save the file.
+
+Important:
+- Do NOT commit this file
+- Make sure `.env` is listed in `.gitignore`
 
 ---
 
-## Configuration
+## Step 7: Run the script
 
-Edit paths in dvd_rip.py if needed:
-TEMP_DIR = /Volumes/Jonte/rip/tmp  
-MOVIES_DIR = /Volumes/nfs-share/media/rippat/movies
+1. Insert a DVD into your DVD drive
+2. Go back to **Terminal**
+3. Make sure you are inside the project folder
+   (your prompt should end with `DVD-Rip-Automation-Script`)
 
-Recommended HandBrake preset for DVD:
-HQ 720p30 Surround
+Run the script by typing:
 
-This preserves:
-- Native DVD resolution
-- Correct aspect ratio
-- Surround audio
-- Reasonable file size
-
----
-
-## Usage
-
-1. Insert a DVD
-2. Run:
 python3 dvd_rip.py
-3. Wait
-4. DVD ejects automatically
-5. Movie appears in Jellyfin-ready structure
 
 ---
 
-## Scope and limitations
+## What happens next
 
-- Designed for DVD ripping
-- Blu-ray support is experimental and future work
-- No DRM removal beyond MakeMKV
-- No TV series support yet
+The script will automatically:
+
+- Detect the disc
+- Identify the movie via OMDb
+- Rip the disc using MakeMKV
+- Transcode with HandBrake
+- Preserve all subtitles (no burn-in)
+- Preserve surround audio
+- Clean up temporary files
+- Eject the disc automatically
+- Create a Jellyfin-ready movie file
+
+---
+
+## 📁 Output structure (Jellyfin-compatible)
+
+Movies/
+└── Alien Resurrection (1997)/
+    └── Alien Resurrection (1997).mkv
+
+---
+
+## Project origin & credit
+
+This project is a fork and extended rewrite of:
+https://github.com/SMUELDigital/DVD-Rip-Automation-Script
+
+All credit to SMUELDigital for the original idea and foundation.
+
+This fork significantly expands the functionality with:
+- OMDb-powered title detection
+- Jellyfin-compatible folder structure
+- Intelligent disc volume name normalization
+- Automatic cleanup of temporary files
+- Subtitle preservation (no burn-in)
+- macOS-specific disc handling
+- Automatic disc eject after completion
+
+---
+
+## 🌀 Vibe-coded project (powered by long conversations with local LLMs and ChatGPT)
+
+This project is unapologetically vibe-coded.
+
+There were no strict specifications, no formal design documents, and no predefined architecture.
+
+Instead, development happened through:
+- Ripping real DVDs and Blu-rays
+- Hitting real-world edge cases
+- Iterating until things worked (and felt right)
+- Long, exploratory discussions with local LLMs and ChatGPT
+- Refactoring ideas mid-conversation when better approaches emerged
+
+Local LLMs were used whenever possible, but ChatGPT played a crucial role simply because
+there aren’t enough GPUs available locally to run everything at the scale and speed needed.
+
+Sometimes the most pragmatic solution is to offload the thinking, not the compute.
+
+No specs.  
+No ceremony.  
+No spare GPUs.  
+
+Just vibes, local LLMs, ChatGPT, and working DVD rips.
 
 ---
 
 ## Legal notice
 
-This script is intended only for personal backups of media you legally own. Always comply with your local copyright laws.
-
----
-
-## Why this exists
-
-Most DVD ripping workflows are:
-- overly manual
-- poorly integrated with media servers
-- fragile or outdated
-
-This project aims to be:
-- simple
-- transparent
-- reproducible
-- Jellyfin-friendly
+This script is intended only for personal backups of media you legally own.  
+Always comply with your local copyright laws.

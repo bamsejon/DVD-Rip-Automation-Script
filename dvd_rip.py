@@ -35,6 +35,12 @@ HANDBRAKE_PRESET_BD  = "HQ 1080p30 Surround"
 
 OVERRIDES_FILE = "title_overrides.json"
 
+# Blu-ray audio passthrough (keeps Atmos / DTS:X / lossless)
+HANDBRAKE_AUDIO_PASSTHROUGH = [
+    "--audio-copy-mask", "truehd,eac3,ac3,dts,dtshd",
+    "--audio-fallback", "ac3"
+]
+
 # ==========================================================
 # HELPERS
 # ==========================================================
@@ -146,7 +152,7 @@ def rip_with_makemkv():
 # HANDBRAKE
 # ==========================================================
 
-def transcode(input_file, output_file, preset):
+def transcode(input_file, output_file, preset, disc_type):
     print(f"\n🎞 Transcoding with HandBrake ({preset})")
 
     cmd = [
@@ -159,6 +165,11 @@ def transcode(input_file, output_file, preset):
         "--format", "mkv"
     ]
 
+    # Preserve lossless audio for Blu-ray (Atmos, DTS:X, etc)
+    if disc_type == "BLURAY":
+        print("🔊 Preserving lossless audio (Atmos / DTS:X passthrough)")
+        cmd.extend(HANDBRAKE_AUDIO_PASSTHROUGH)
+
     run_command(cmd)
 
 # ==========================================================
@@ -168,7 +179,6 @@ def transcode(input_file, output_file, preset):
 def eject_disc(volume_name):
     print("⏏️ Preparing to eject disc")
 
-    # Give macOS time to release the disc (loginwindow etc)
     time.sleep(10)
 
     volume_path = f"/Volumes/{volume_name}"
@@ -251,7 +261,7 @@ def main():
     raw_mkv = rip_with_makemkv()
 
     preset = HANDBRAKE_PRESET_BD if disc_type == "BLURAY" else HANDBRAKE_PRESET_DVD
-    transcode(raw_mkv, output_file, preset)
+    transcode(raw_mkv, output_file, preset, disc_type)
 
     if os.path.exists(raw_mkv):
         os.remove(raw_mkv)

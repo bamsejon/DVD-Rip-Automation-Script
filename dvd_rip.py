@@ -162,6 +162,7 @@ def transcode(input_file, output_file, preset, disc_type):
         "--preset", preset,
         "--all-subtitles",
         "--subtitle-burned=0",
+        "--subtitle-default=none",
         "--format", "mkv"
     ]
 

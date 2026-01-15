@@ -1,6 +1,6 @@
-# DVD Rip Automation Script
+# MovieDisc Ripper
 
-A fully automated DVD ripping and transcoding workflow for macOS, designed to produce Jellyfin-ready movie libraries with correct titles, metadata, subtitles, and folder structure.
+A fully automated DVD and BD ripping and transcoding workflow for macOS, designed to produce Jellyfin-ready movie libraries with correct titles, metadata, subtitles, and folder structure.
 
 Insert a DVD or Blu Ray → run the script → wait → disc ejects → movie appears in Jellyfin.
 

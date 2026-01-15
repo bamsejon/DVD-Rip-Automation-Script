@@ -6,8 +6,8 @@ import sys
 import json
 import urllib.parse
 import urllib.request
-import time
 import hashlib
+import time
 import requests
 from dotenv import load_dotenv
 
@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OMDB_API_KEY = os.getenv("OMDB_API_KEY")
+DISCFINDER_API = os.getenv("DISCFINDER_API", "https://discfinder-api.bylund.cloud")
+
 if not OMDB_API_KEY:
     print("❌ OMDB_API_KEY not set (check .env)")
     sys.exit(1)
@@ -35,9 +37,6 @@ MOVIES_DIR = "/Volumes/nfs-share/media/rippat/movies"
 HANDBRAKE_PRESET_DVD = "HQ 720p30 Surround"
 HANDBRAKE_PRESET_BD  = "HQ 1080p30 Surround"
 
-DISCFINDER_API = "https://discfinder-api.bylund.cloud"
-
-# Blu-ray audio passthrough (Atmos / DTS-HD / TrueHD)
 HANDBRAKE_AUDIO_PASSTHROUGH = [
     "--audio-copy-mask", "truehd,eac3,ac3,dts,dtshd",
     "--audio-fallback", "ac3"
@@ -51,13 +50,8 @@ def run_command(cmd):
     print("\n>>>", " ".join(cmd))
     subprocess.run(cmd, check=True)
 
-def sha256_of_files(file_paths):
-    h = hashlib.sha256()
-    for path in sorted(file_paths):
-        with open(path, "rb") as f:
-            while chunk := f.read(8192):
-                h.update(chunk)
-    return h.hexdigest()
+def sha256_of_string(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 # ==========================================================
 # DISC DETECTION
@@ -73,10 +67,11 @@ def detect_disc():
         if upper.startswith(("BACKUP", "TIME MACHINE")):
             continue
 
-        if os.path.isdir(os.path.join(path, "BDMV")):
-            return name, "BLURAY"
+        contents = os.listdir(path)
 
-        if os.path.isdir(os.path.join(path, "VIDEO_TS")):
+        if "BDMV" in contents:
+            return name, "BLURAY"
+        if "VIDEO_TS" in contents:
             return name, "DVD"
 
     return None, None
@@ -88,77 +83,69 @@ def normalize_title(volume_name):
     return title.strip()
 
 # ==========================================================
-# CHECKSUM
-# ==========================================================
-
-def generate_disc_checksum(volume, disc_type):
-    base = f"/Volumes/{volume}"
-
-    if disc_type == "DVD":
-        vt = os.path.join(base, "VIDEO_TS")
-        files = [
-            os.path.join(vt, f)
-            for f in os.listdir(vt)
-            if f.endswith((".IFO", ".BUP"))
-        ]
-    else:
-        files = [
-            os.path.join(base, "BDMV", "index.bdmv"),
-            os.path.join(base, "BDMV", "MovieObject.bdmv"),
-        ]
-
-    return sha256_of_files(files)
-
-# ==========================================================
-# DISCFINDER API
-# ==========================================================
-
-def lookup_disc_api(checksum):
-    try:
-        r = requests.get(
-            f"{DISCFINDER_API}/lookup",
-            params={"checksum": checksum},
-            timeout=5,
-        )
-        if r.status_code == 200:
-            return r.json()
-    except Exception:
-        pass
-    return None
-
-def create_disc_api(payload):
-    try:
-        r = requests.post(
-            f"{DISCFINDER_API}/discs",
-            json=payload,
-            timeout=5,
-        )
-        return r.status_code in (200, 201)
-    except Exception:
-        return False
-
-# ==========================================================
 # OMDB
 # ==========================================================
 
 def omdb_lookup_by_title(title):
-    print(f"\n🔎 OMDb lookup: {title}")
     query = urllib.parse.quote(title)
     url = f"https://www.omdbapi.com/?t={query}&apikey={OMDB_API_KEY}"
 
     with urllib.request.urlopen(url) as response:
         data = json.loads(response.read().decode())
 
-    return data if data.get("Response") == "True" else None
+    if data.get("Response") != "True":
+        return None
+
+    return {
+        "title": data["Title"],
+        "year": data["Year"],
+        "imdb_id": data["imdbID"],
+    }
 
 def omdb_lookup_by_imdb(imdb_id):
-    print(f"\n🔎 OMDb lookup by IMDb ID: {imdb_id}")
     url = f"https://www.omdbapi.com/?i={imdb_id}&apikey={OMDB_API_KEY}"
 
     with urllib.request.urlopen(url) as response:
         data = json.loads(response.read().decode())
 
-    return data if data.get("Response") == "True" else None
+    if data.get("Response") != "True":
+        return None
+
+    return {
+        "title": data["Title"],
+        "year": data["Year"],
+        "imdb_id": data["imdbID"],
+    }
+
+# ==========================================================
+# DISC FINDER API
+# ==========================================================
+
+def discfinder_lookup(disc_label, checksum):
+    try:
+        r = requests.get(
+            f"{DISCFINDER_API}/lookup",
+            params={"disc_label": disc_label, "checksum": checksum},
+            timeout=5,
+        )
+        if r.status_code != 200:
+            return None
+
+        data = r.json()
+        return {
+            "title": data["title"],
+            "year": data["year"],
+            "imdb_id": data["imdb_id"],
+        }
+    except Exception:
+        return None
+
+def discfinder_post(payload):
+    requests.post(
+        f"{DISCFINDER_API}/discs",
+        json=payload,
+        timeout=5,
+    )
 
 # ==========================================================
 # MAKEMKV
@@ -168,10 +155,11 @@ def rip_with_makemkv():
     print("\n🎬 Ripping disc...")
 
     os.makedirs(TEMP_DIR, exist_ok=True)
+
     for f in os.listdir(TEMP_DIR):
-        p = os.path.join(TEMP_DIR, f)
-        if os.path.isfile(p):
-            os.remove(p)
+        path = os.path.join(TEMP_DIR, f)
+        if os.path.isfile(path):
+            os.remove(path)
 
     cmd = [
         MAKE_MKV_PATH,
@@ -195,8 +183,6 @@ def rip_with_makemkv():
 # ==========================================================
 
 def transcode(input_file, output_file, preset, disc_type):
-    print(f"\n🎞 Transcoding with HandBrake ({preset})")
-
     cmd = [
         HANDBRAKE_CLI_PATH,
         "-i", input_file,
@@ -209,7 +195,6 @@ def transcode(input_file, output_file, preset, disc_type):
     ]
 
     if disc_type == "BLURAY":
-        print("🔊 Preserving lossless audio (Atmos / DTS:X)")
         cmd.extend(HANDBRAKE_AUDIO_PASSTHROUGH)
 
     run_command(cmd)
@@ -218,20 +203,9 @@ def transcode(input_file, output_file, preset, disc_type):
 # EJECT
 # ==========================================================
 
-def eject_disc(volume_name):
-    print("⏏️ Preparing to eject disc")
+def eject_disc(volume):
     time.sleep(10)
-
-    volume_path = f"/Volumes/{volume_name}"
-    result = subprocess.run(
-        ["diskutil", "eject", volume_path],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
-
-    if result.returncode != 0:
-        subprocess.run(["diskutil", "eject", "force", volume_path], check=False)
+    subprocess.run(["diskutil", "eject", f"/Volumes/{volume}"], check=False)
 
 # ==========================================================
 # MAIN
@@ -242,60 +216,60 @@ def main():
 
     volume, disc_type = detect_disc()
     if not volume:
-        print("❌ No DVD or Blu-ray detected")
+        print("❌ No disc detected")
         sys.exit(1)
 
-    print(f"🎞 Detected disc volume: {volume}")
-    print(f"💿 Disc type: {disc_type}")
+    print(f"\n🎞 Disc: {volume}")
+    checksum = sha256_of_string(volume)
+    print(f"🔐 Checksum: {checksum}")
 
-    checksum = generate_disc_checksum(volume, disc_type)
-    print(f"🔐 Disc checksum: {checksum}")
+    movie = discfinder_lookup(volume, checksum)
 
-    disc = lookup_disc_api(checksum)
-
-    if disc:
-        print("🌍 Found disc in DiscFinder API")
-        title = disc["title"]
-        year = disc["year"]
-        imdb_id = disc["imdb_id"]
+    if movie:
+        print("✅ Found in Disc Finder API")
     else:
-        print("🌍 Disc not found in API – using OMDb")
         normalized = normalize_title(volume)
-
         movie = omdb_lookup_by_title(normalized)
+
         if not movie:
-            imdb_id = input("👉 Enter IMDb ID: ").strip()
+            imdb_id = input("❌ OMDb failed. Enter IMDb ID or ENTER to abort: ").strip()
+            if not imdb_id:
+                sys.exit(1)
+
             movie = omdb_lookup_by_imdb(imdb_id)
             if not movie:
-                sys.exit("❌ Invalid IMDb ID")
+                print("❌ Invalid IMDb ID")
+                sys.exit(1)
 
-        title = movie["Title"]
-        year = movie["Year"]
-        imdb_id = movie["imdbID"]
+        print(f"\n🎬 Found via OMDb:")
+        print(f"   Title: {movie['title']} ({movie['year']})")
+        print(f"   IMDb:  https://www.imdb.com/title/{movie['imdb_id']}/")
 
-        payload = {
-            "disc_label": volume,
-            "disc_type": disc_type,
-            "checksum": checksum,
-            "imdb_id": imdb_id,
-            "title": title,
-            "year": year,
-        }
+        confirm = input("👉 Add this disc to Disc Finder API? [Y/n]: ").strip().lower()
+        if confirm in ("", "y", "yes"):
+            discfinder_post({
+                "disc_label": volume,
+                "checksum": checksum,
+                "disc_type": disc_type,
+                "imdb_id": movie["imdb_id"],
+                "title": movie["title"],
+                "year": movie["year"],
+            })
+            print("💾 Added to Disc Finder API")
 
-        if create_disc_api(payload):
-            print("💾 Disc added to DiscFinder API")
+    print(f"\n▶️ Identified: {movie['title']} ({movie['year']})")
 
-    movie_folder = f"{title} ({year})"
+    movie_folder = f"{movie['title']} ({movie['year']})"
     movie_path = os.path.join(MOVIES_DIR, movie_folder)
     os.makedirs(movie_path, exist_ok=True)
 
-    output_file = os.path.join(movie_path, f"{title} ({year}).mkv")
+    output_file = os.path.join(movie_path, f"{movie['title']} ({movie['year']}).mkv")
 
-    raw_mkv = rip_with_makemkv()
+    raw = rip_with_makemkv()
     preset = HANDBRAKE_PRESET_BD if disc_type == "BLURAY" else HANDBRAKE_PRESET_DVD
-    transcode(raw_mkv, output_file, preset, disc_type)
+    transcode(raw, output_file, preset, disc_type)
 
-    os.remove(raw_mkv)
+    os.remove(raw)
     eject_disc(volume)
 
     print("\n🎉 DONE")

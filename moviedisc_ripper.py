@@ -429,14 +429,28 @@ def rip_with_makemkv():
         if os.path.isfile(p):
             os.remove(p)
 
-    run([MAKE_MKV_PATH, "mkv", "disc:0", "0", TEMP_DIR])
+# ### CHANGED ###
+    # Dump ALL titles instead of just title 0
+    run([MAKE_MKV_PATH, "mkv", "disc:0", "all", TEMP_DIR])
 
-    mkvs = [f for f in os.listdir(TEMP_DIR) if f.lower().endswith(".mkv")]
+    mkvs = [
+        os.path.join(TEMP_DIR, f)
+        for f in os.listdir(TEMP_DIR)
+        if f.lower().endswith(".mkv")
+    ]
+
     if not mkvs:
         print("❌ No MKV produced")
         sys.exit(1)
 
-    return os.path.join(TEMP_DIR, mkvs[0])
+ # ### CHANGED ###
+    # Pick the largest MKV = main feature
+    mkvs.sort(key=lambda p: os.path.getsize(p), reverse=True)
+    main_mkv = mkvs[0]
+
+    print(f"🎬 Selected main title: {os.path.basename(main_mkv)}")
+
+    return main_mkv
 
 # ==========================================================
 # HANDBRAKE
@@ -454,6 +468,9 @@ def transcode(input_file, output_file, preset, disc_type):
         "--format", "mkv"
     ]
 
+    # ### CHANGED ###
+    # Always use classic HandBrake behavior for Blu-ray.
+    # No VideoToolbox, no explicit encoder flags.
     if disc_type == "BLURAY":
         cmd.extend(HANDBRAKE_AUDIO_PASSTHROUGH)
 
@@ -532,21 +549,16 @@ def main():
 
     # ======================================================
     # COVER ART PHASE 1 (BEFORE RIP)
-    # - If none => prompt upload link
-    # - If some => select language (or only language) and download what exists
-    # - Snapshot initial status for end-of-rip diff
     # ======================================================
 
     status_before = asset_status_all(checksum)
-
-    # Treat all "missing folder / missing lang / empty lang" as "no images"
     show_missing_assets_prompt_if_none(status_before, checksum)
 
     selected_lang = choose_language_for_download(status_before, checksum)
     if selected_lang:
         download_assets_for_language(status_before, checksum, selected_lang, movie_dir)
 
-    # Snapshot AFTER we did pre-rip downloads (still the API state before ripping starts)
+    # Snapshot AFTER we did pre-rip downloads
     initial_asset_state = asset_status_all(checksum)
 
     # ======================================================
@@ -564,8 +576,6 @@ def main():
 
     # ======================================================
     # COVER ART PHASE 2 (AFTER ENCODE)
-    # - If new assets appeared during ripping => download them
-    # - Print a single friendly “thank you” message
     # ======================================================
 
     final_asset_state = asset_status_all(checksum)

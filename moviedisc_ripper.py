@@ -64,6 +64,7 @@ MAKE_MKV_PATH = "/Applications/MakeMKV.app/Contents/MacOS/makemkvcon"
 HANDBRAKE_CLI_PATH = "/opt/homebrew/bin/HandBrakeCLI"
 
 TEMP_DIR = "/Volumes/Jonte/rip/tmp"
+PREVIEW_PORT = 8765
 MOVIES_DIR = "/Volumes/nfs-share/media/rippat/movies"
 
 # ==========================================================
@@ -113,6 +114,39 @@ def get_duration_seconds(path: str) -> float:
 # ==========================================================
 # HELPERS
 # ==========================================================
+
+def ensure_preview_server():
+    """
+    Starts local preview server if not already running.
+    """
+    import socket
+
+    def is_port_open(port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            return s.connect_ex(("127.0.0.1", port)) == 0
+
+    if is_port_open(PREVIEW_PORT):
+        return  # already running
+
+    print("▶️ Starting local preview server…")
+
+    env = os.environ.copy()
+    env["DISC_PREVIEW_DIR"] = TEMP_DIR
+    env["DISC_PREVIEW_PORT"] = str(PREVIEW_PORT)
+
+    subprocess.Popen(
+        [
+            sys.executable,
+            os.path.join(os.path.dirname(__file__), "includes", "preview_server.py")
+        ],
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    time.sleep(0.5)
+
+
 def legacy_checksum_exists(legacy_checksum: str) -> bool:
     # 1️⃣ Finns i DiscFinder API / DB?
     try:
@@ -1101,6 +1135,7 @@ def main():
 
     run_makemkv([MAKE_MKV_PATH, "mkv", "disc:0", "all", TEMP_DIR])
     eject_disc(volume)
+    ensure_preview_server()
     print("🛠 Metadata ready to edit:")
     print(f"   https://discfinder-admin.bylund.cloud/metadata-layout/{checksum}")
     print("⏳ Waiting for metadata to be marked READY…")

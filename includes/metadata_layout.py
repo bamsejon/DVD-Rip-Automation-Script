@@ -12,6 +12,9 @@ def wait_for_metadata_layout_ready(checksum: str, poll_interval: int = 3):
     print("\n⏳ Waiting for metadata layout to become READY...")
     print("   (admin selection in UI)")
 
+    spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    i = 0
+
     while True:
         r = requests.get(
             f"{DISCFINDER_API}/metadata-layout/{checksum}",
@@ -19,18 +22,25 @@ def wait_for_metadata_layout_ready(checksum: str, poll_interval: int = 3):
         )
 
         if r.status_code != 200:
-            print("❌ Failed to fetch metadata layout status")
+            print("\n❌ Failed to fetch metadata layout status")
             print(r.text)
             raise SystemExit(1)
 
-        status = r.json().get("status")
-        print(f"   status = {status}")
+        status = r.json().get("status", "unknown")
+
+        print(
+            f"\r{spinner[i % len(spinner)]} status = {status}",
+            end="",
+            flush=True
+        )
+        i += 1
 
         if status == "ready":
-            print("✅ Metadata layout is READY")
+            print("\n✅ Metadata layout is READY")
             return
 
         time.sleep(poll_interval)
+
 
 def ensure_metadata_layout(checksum: str, disc_type: str, movie: dict):
     payload = {

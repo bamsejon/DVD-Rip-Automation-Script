@@ -54,6 +54,9 @@ if not OMDB_API_KEY:
     print("❌ OMDB_API_KEY not set")
     sys.exit(1)
 
+# Optional: User token for linking rips to your Keepedia account
+USER_TOKEN = os.getenv("USER_TOKEN")
+
 DISCFINDER_API = "https://discfinder-api.bylund.cloud"
 
 # ==========================================================
@@ -588,10 +591,15 @@ def discfinder_post(disc_label, disc_type, checksum, movie):
         "year": movie["Year"]
     }
 
+    headers = {}
+    if USER_TOKEN:
+        headers["Authorization"] = f"Bearer {USER_TOKEN}"
+
     try:
         r = requests.post(
             f"{DISCFINDER_API}/discs",
             json=payload,
+            headers=headers,
             timeout=5
         )
 

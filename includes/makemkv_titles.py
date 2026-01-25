@@ -207,16 +207,16 @@ def _parse_audio_track(stream_index: int, stream_info: Dict[int, str]) -> Dict[s
     flags = _detect_track_flags(stream_info)
 
     return {
-        "index": stream_index,
+        "stream_index": stream_index,
         "type": "audio",
         "language_code": lang_code,
-        "language": lang_name,
-        "codec": codec_id,
-        "format": codec_format,
-        "channels": channel_info,
+        "language_name": lang_name,
+        "codec_name": codec_id,
+        "codec_format": codec_format,
+        "channel_format": channel_info,
         "name": name,
-        "commentary": flags["commentary"],
-        "default": flags["default"],
+        "is_commentary": flags["commentary"],
+        "is_default": flags["default"],
         "enabled": True,  # Default to enabled
     }
 
@@ -254,17 +254,17 @@ def _parse_subtitle_track(stream_index: int, stream_info: Dict[int, str]) -> Dic
     flags = _detect_track_flags(stream_info)
 
     return {
-        "index": stream_index,
+        "stream_index": stream_index,
         "type": "subtitle",
         "language_code": lang_code,
-        "language": lang_name,
-        "codec": codec_id,
-        "format": codec_format,
+        "language_name": lang_name,
+        "codec_name": codec_id,
+        "codec_format": codec_format,
         "name": name,
-        "forced": flags["forced"],
-        "sdh": flags["sdh"],
-        "commentary": flags["commentary"],
-        "default": flags["default"],
+        "is_forced": flags["forced"],
+        "is_sdh": flags["sdh"],
+        "is_commentary": flags["commentary"],
+        "is_default": flags["default"],
         "enabled": True,  # Default to enabled
     }
 

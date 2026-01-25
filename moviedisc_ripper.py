@@ -582,6 +582,9 @@ def discfinder_lookup(checksum):
     return r.json() if r.status_code == 200 else None
 
 def discfinder_post(disc_label, disc_type, checksum, movie):
+    """
+    Posts a new disc to the API. Returns the disc ID if successful.
+    """
     payload = {
         "disc_label": disc_label,
         "disc_type": disc_type,
@@ -609,10 +612,21 @@ def discfinder_post(disc_label, disc_type, checksum, movie):
 
         if r.status_code not in (200, 201, 409):
             print("❌ DiscFinder API returned unexpected status!")
+            return None
+
+        # If disc already existed (409), lookup to get the ID
+        if r.status_code == 409:
+            lookup = discfinder_lookup(checksum)
+            return lookup.get("id") if lookup else None
+
+        # For new disc, lookup to get the ID
+        lookup = discfinder_lookup(checksum)
+        return lookup.get("id") if lookup else None
 
     except Exception as e:
         print("❌ FAILED to post to DiscFinder API")
         print(e)
+        return None
 
 def link_disc_to_user(checksum: str):
     """
@@ -677,7 +691,7 @@ def lang_name(status: dict, code: str) -> str:
     n = info.get("language")
     return n if n else code
 
-def choose_language_for_download(status: dict, checksum: str):
+def choose_language_for_download(status: dict, disc_id: int):
     """
     Returns selected lang_code (or None if no assets at all).
     Selection rule:
@@ -698,7 +712,7 @@ def choose_language_for_download(status: dict, checksum: str):
         print("\n🖼️  Cover art found!")
         print(f"   {only_name} will be downloaded as cover art (only available language).")
         print("💡 Want to add another language? Upload here while ripping:")
-        print(f"   https://keepedia.org/upload/{checksum}")
+        print(f"   https://keepedia.org/upload/{disc_id}")
         return default
 
     default_name = lang_name(status, default)
@@ -816,16 +830,16 @@ def download_new_assets(final_status: dict, checksum: str, movie_dir: str, new_i
 
     return downloaded
 
-def show_missing_assets_prompt_if_none(status: dict, checksum: str):
+def show_missing_assets_prompt_if_none(status: dict, disc_id: int):
     """
-    If checksum dir missing OR lang dir missing OR lang dirs exist but contain no supported images
-    => status will be {} or no langs with any assets. Treat as no images.
+    If no assets exist for this disc, prompt user to upload cover art.
+    Uses disc_id for cleaner URLs.
     """
     langs = languages_with_any_assets(status)
     if not langs:
         print("\n🖼️  No cover art found for this disc yet.")
         print("💡 Why not scan/photo the cover while ripping and upload it?")
-        print(f"   https://keepedia.org/upload/{checksum}")
+        print(f"   https://keepedia.org/upload/{disc_id}")
 
 
 # ==========================================================
@@ -1082,12 +1096,16 @@ def main():
                 sys.exit(1)
 
     # ✅ FIX: post if (and only if) it was missing initially OR user marked API hit as wrong
+    disc_id = None
     if needs_post:
         print("📤 Posting disc to DiscFinder API...")
-        discfinder_post(volume, disc_type, checksum, movie)
+        disc_id = discfinder_post(volume, disc_type, checksum, movie)
     else:
         # Disc already existed - still link it to the user's account
         link_disc_to_user(checksum)
+        # Get disc ID from the API lookup
+        if api:
+            disc_id = api.get("id")
 
     title = sanitize_filename(movie["Title"])
     year = movie["Year"]
@@ -1147,9 +1165,10 @@ def main():
     # ======================================================
 
     status_before = asset_status_all(checksum)
-    show_missing_assets_prompt_if_none(status_before, checksum)
+    if disc_id:
+        show_missing_assets_prompt_if_none(status_before, disc_id)
 
-    selected_lang = choose_language_for_download(status_before, checksum)
+    selected_lang = choose_language_for_download(status_before, disc_id) if disc_id else None
     if selected_lang:
         download_assets_for_language(status_before, checksum, selected_lang, movie_dir)
 
@@ -1175,7 +1194,7 @@ def main():
     eject_disc(volume)
     ensure_preview_server()
     print("🛠 Metadata ready to edit:")
-    print(f"   https://keepedia.org/metadata/{checksum}")
+    print(f"   https://keepedia.org/metadata/{disc_id}")
     print("⏳ Waiting for metadata to be marked READY…")
     wait_for_metadata_layout_ready(checksum)
     # ======================================================

@@ -39,17 +39,64 @@ STREAM_TYPE_VIDEO = 6206
 STREAM_TYPE_AUDIO = 6201
 STREAM_TYPE_SUBTITLES = 6202
 
-# SINFO attribute IDs
+# SINFO attribute IDs (from MakeMKV source/output analysis)
 SINFO_TYPE = 1          # Stream type (6201=Audio, 6202=Subtitles, 6206=Video)
-SINFO_LANG_CODE = 2     # Language code (eng, spa, fra, etc.)
-SINFO_LANG_NAME = 3     # Language name (English, Spanish, French, etc.)
+SINFO_TYPE_NAME = 2     # Stream type name ("Audio", "Video", "Subtitles")
+SINFO_LANG_CODE = 3     # Language code (eng, spa, fra, etc.)
+SINFO_LANG_NAME = 4     # Language name (English, Spanish, French, etc.)
 SINFO_CODEC_ID = 5      # Codec ID (A_AC3, A_DTS, S_HDMV/PGS, etc.)
-SINFO_CODEC_SHORT = 13  # Codec short info ("AC3 5.1", "DTS-HD MA 7.1", etc.)
-SINFO_CHANNELS = 19     # Channel layout description
-SINFO_SAMPLE_RATE = 20  # Sample rate
-SINFO_BITS = 21         # Bits per sample
-SINFO_NAME = 22         # Stream name/title (e.g., "Director's Commentary")
-SINFO_EXTRA = 30        # Extra info
+SINFO_CODEC_SHORT = 6   # Codec short name
+SINFO_BITRATE = 8       # Bitrate info
+SINFO_CHANNELS = 13     # Channel/stream info ("Surround 5.1", "448 Kb/s", etc.)
+SINFO_SAMPLE_RATE = 14  # Sample rate
+SINFO_BITS = 17         # Bit depth
+SINFO_NAME = 30         # Stream name/title (e.g., "Director's Commentary")
+SINFO_EXTRA = 31        # Extra info
+
+# ISO 639-2 language code to name mapping (common languages)
+LANG_CODE_TO_NAME = {
+    "eng": "English",
+    "spa": "Spanish",
+    "fra": "French",
+    "fre": "French",
+    "deu": "German",
+    "ger": "German",
+    "ita": "Italian",
+    "por": "Portuguese",
+    "rus": "Russian",
+    "jpn": "Japanese",
+    "zho": "Chinese",
+    "chi": "Chinese",
+    "kor": "Korean",
+    "ara": "Arabic",
+    "hin": "Hindi",
+    "tha": "Thai",
+    "vie": "Vietnamese",
+    "pol": "Polish",
+    "nld": "Dutch",
+    "dut": "Dutch",
+    "swe": "Swedish",
+    "nor": "Norwegian",
+    "dan": "Danish",
+    "fin": "Finnish",
+    "ice": "Icelandic",
+    "isl": "Icelandic",
+    "ces": "Czech",
+    "cze": "Czech",
+    "hun": "Hungarian",
+    "tur": "Turkish",
+    "heb": "Hebrew",
+    "gre": "Greek",
+    "ell": "Greek",
+    "ron": "Romanian",
+    "rum": "Romanian",
+    "bul": "Bulgarian",
+    "hrv": "Croatian",
+    "slv": "Slovenian",
+    "srp": "Serbian",
+    "ukr": "Ukrainian",
+    "und": "Unknown",
+}
 
 
 def _parse_duration_to_seconds(s: str) -> Optional[int]:
@@ -134,11 +181,15 @@ def _parse_audio_track(stream_index: int, stream_info: Dict[int, str]) -> Dict[s
     Parse audio track info from SINFO attributes.
     """
     lang_code = stream_info.get(SINFO_LANG_CODE, "und")
-    lang_name = stream_info.get(SINFO_LANG_NAME, "Unknown")
+    lang_name = stream_info.get(SINFO_LANG_NAME, "")
     codec_id = stream_info.get(SINFO_CODEC_ID, "")
     codec_short = stream_info.get(SINFO_CODEC_SHORT, "")
     channels = stream_info.get(SINFO_CHANNELS, "")
     name = stream_info.get(SINFO_NAME, "")
+
+    # Lookup language name from code if not provided
+    if not lang_name or lang_name == "Unknown":
+        lang_name = LANG_CODE_TO_NAME.get(lang_code.lower(), lang_code.upper() if lang_code else "Unknown")
 
     # Determine codec format
     codec_format = codec_short or codec_id
@@ -175,10 +226,14 @@ def _parse_subtitle_track(stream_index: int, stream_info: Dict[int, str]) -> Dic
     Parse subtitle track info from SINFO attributes.
     """
     lang_code = stream_info.get(SINFO_LANG_CODE, "und")
-    lang_name = stream_info.get(SINFO_LANG_NAME, "Unknown")
+    lang_name = stream_info.get(SINFO_LANG_NAME, "")
     codec_id = stream_info.get(SINFO_CODEC_ID, "")
     codec_short = stream_info.get(SINFO_CODEC_SHORT, "")
     name = stream_info.get(SINFO_NAME, "")
+
+    # Lookup language name from code if not provided
+    if not lang_name or lang_name == "Unknown":
+        lang_name = LANG_CODE_TO_NAME.get(lang_code.lower(), lang_code.upper() if lang_code else "Unknown")
 
     # Determine format
     codec_format = ""

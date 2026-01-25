@@ -114,6 +114,172 @@ def get_duration_seconds(path: str) -> float:
         return float(data["format"]["duration"])
     except Exception:
         return 0.0
+
+# ==========================================================
+# AUDIO ANALYSIS (Commentary Detection)
+# ==========================================================
+
+def analyze_audio_track(mkv_path: str, track_index: int, sample_duration: int = 120, skip_seconds: int = 600) -> dict:
+    """
+    Analyze an audio track using ffmpeg volumedetect.
+
+    Returns dict with:
+        - mean_volume: average volume in dB
+        - max_volume: peak volume in dB
+        - dynamic_range: difference between max and mean
+        - is_likely_commentary: True if dynamic range suggests commentary
+    """
+    try:
+        cmd = [
+            "ffmpeg",
+            "-ss", str(skip_seconds),  # Skip intro/credits
+            "-i", mkv_path,
+            "-map", f"0:{track_index}",
+            "-t", str(sample_duration),
+            "-af", "volumedetect",
+            "-f", "null",
+            "-"
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        # Parse output
+        output = result.stderr
+        mean_match = re.search(r"mean_volume:\s*(-?[\d.]+)\s*dB", output)
+        max_match = re.search(r"max_volume:\s*(-?[\d.]+)\s*dB", output)
+
+        if not mean_match or not max_match:
+            return None
+
+        mean_volume = float(mean_match.group(1))
+        max_volume = float(max_match.group(1))
+        dynamic_range = max_volume - mean_volume
+
+        # Commentary typically has dynamic range < 20 dB
+        # Movie audio typically has dynamic range > 25 dB
+        is_likely_commentary = dynamic_range < 20
+
+        return {
+            "mean_volume": mean_volume,
+            "max_volume": max_volume,
+            "dynamic_range": round(dynamic_range, 1),
+            "is_likely_commentary": is_likely_commentary
+        }
+
+    except subprocess.TimeoutExpired:
+        print(f"   ⚠️ Audio analysis timed out for track {track_index}")
+        return None
+    except Exception as e:
+        print(f"   ⚠️ Audio analysis failed for track {track_index}: {e}")
+        return None
+
+
+def analyze_audio_tracks_for_title(mkv_path: str, audio_tracks: list) -> list:
+    """
+    Analyze all audio tracks in an MKV file and update is_commentary flag.
+
+    Returns updated audio_tracks list with analysis results.
+    """
+    if not audio_tracks:
+        return audio_tracks
+
+    print(f"\n🔊 Analyzing audio tracks for commentary detection...")
+
+    updated_tracks = []
+    for track in audio_tracks:
+        stream_index = track.get("stream_index")
+        if stream_index is None:
+            updated_tracks.append(track)
+            continue
+
+        analysis = analyze_audio_track(mkv_path, stream_index)
+
+        if analysis:
+            # Update the track with analysis results
+            track_copy = track.copy()
+            track_copy["dynamic_range"] = analysis["dynamic_range"]
+
+            # Only flag as commentary if not already detected and analysis suggests it
+            if not track_copy.get("is_commentary") and analysis["is_likely_commentary"]:
+                track_copy["is_commentary"] = True
+                print(f"   🎤 Track {stream_index}: Likely COMMENTARY (dynamic range: {analysis['dynamic_range']} dB)")
+            else:
+                print(f"   🎵 Track {stream_index}: Main audio (dynamic range: {analysis['dynamic_range']} dB)")
+
+            updated_tracks.append(track_copy)
+        else:
+            updated_tracks.append(track)
+
+    return updated_tracks
+
+
+def analyze_and_update_metadata(checksum: str, temp_dir: str):
+    """
+    Analyze all ripped MKV files and update the API with commentary detection results.
+    """
+    print("\n" + "=" * 50)
+    print("🔬 AUDIO ANALYSIS PHASE")
+    print("=" * 50)
+
+    # Get current metadata items from API
+    try:
+        r = requests.get(
+            f"{DISCFINDER_API}/metadata-layout/{checksum}/items",
+            timeout=(5, 30)
+        )
+        if r.status_code != 200:
+            print("⚠️ Could not fetch metadata items for analysis")
+            return
+
+        items = r.json()
+    except Exception as e:
+        print(f"⚠️ Failed to fetch metadata items: {e}")
+        return
+
+    # Analyze each item's MKV file
+    for item in items:
+        title_index = item.get("title_index")
+        source_file = item.get("source_file")
+        audio_tracks = item.get("audio_tracks", [])
+
+        if not audio_tracks:
+            continue
+
+        # Find the MKV file
+        pattern = f"_t{title_index:02d}.mkv"
+        matches = [f for f in os.listdir(temp_dir) if f.endswith(pattern)]
+
+        if not matches:
+            continue
+
+        mkv_path = os.path.join(temp_dir, matches[0])
+        print(f"\n📀 Analyzing: {matches[0]}")
+
+        # Analyze audio tracks
+        updated_tracks = analyze_audio_tracks_for_title(mkv_path, audio_tracks)
+
+        # Update API with analysis results
+        try:
+            r = requests.patch(
+                f"{DISCFINDER_API}/metadata-layout/items/{item['id']}",
+                json={"audio_tracks": updated_tracks},
+                timeout=10
+            )
+            if r.status_code == 200:
+                print(f"   ✅ Updated metadata with analysis results")
+            else:
+                print(f"   ⚠️ Failed to update metadata: {r.status_code}")
+        except Exception as e:
+            print(f"   ⚠️ Failed to update metadata: {e}")
+
+    print("\n" + "=" * 50)
+
+
 # ==========================================================
 # HELPERS
 # ==========================================================
@@ -1198,6 +1364,12 @@ def main():
 
     run_makemkv([MAKE_MKV_PATH, "mkv", "disc:0", "all", TEMP_DIR])
     eject_disc(volume)
+
+    # ======================================================
+    # AUDIO ANALYSIS (Commentary Detection)
+    # ======================================================
+    analyze_and_update_metadata(checksum, TEMP_DIR)
+
     ensure_preview_server()
     print("🛠 Metadata ready to edit:")
     print(f"   https://keepedia.org/metadata/{disc_id}")

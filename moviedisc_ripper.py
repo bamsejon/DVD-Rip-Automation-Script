@@ -822,6 +822,30 @@ def link_disc_to_user(checksum: str):
     except Exception as e:
         print(f"⚠️ Failed to link disc to account: {e}")
 
+
+def get_user_settings() -> dict:
+    """
+    Fetch user settings from the API.
+    Returns empty dict if no token or request fails.
+    """
+    if not USER_TOKEN:
+        return {}
+
+    headers = {"Authorization": f"Bearer {USER_TOKEN}"}
+
+    try:
+        r = requests.get(
+            f"{DISCFINDER_API}/users/me/settings",
+            headers=headers,
+            timeout=5
+        )
+        if r.status_code == 200:
+            return r.json()
+        return {}
+    except Exception:
+        return {}
+
+
 def asset_status_all(checksum):
     """
     Returns dict:
@@ -863,15 +887,32 @@ def choose_language_for_download(status: dict, disc_id: int):
     Selection rule:
       - If 0 languages => None
       - If 1 language => that language (with friendly message)
-      - If >1 => pick first (sorted by language name), allow 10s SPACE+ENTER to choose other
+      - If >1 => use user's preferred language if available, otherwise first alphabetically
+                 Allow 10s SPACE+ENTER to choose other
     """
+    # ISO 639-2 (3-letter) to ISO 639-1 (2-letter) mapping
+    iso639_2_to_1 = {
+        "eng": "en", "swe": "sv", "nor": "no", "dan": "da", "fin": "fi",
+        "deu": "de", "fra": "fr", "spa": "es", "ita": "it", "por": "pt",
+        "nld": "nl", "pol": "pl", "rus": "ru", "jpn": "ja", "kor": "ko",
+        "zho": "zh", "hin": "hi", "ara": "ar"
+    }
+
     langs = languages_with_any_assets(status)
     if not langs:
         return None
 
-    # default = first by human name (stable)
+    # default = first by human name (stable), or user's preferred language if available
     langs_sorted = sorted(langs, key=lambda c: lang_name(status, c).lower())
     default = langs_sorted[0]
+
+    # Check user's preferred cover art language
+    settings = get_user_settings()
+    preferred_3letter = settings.get("preferred_cover_art_language")
+    if preferred_3letter:
+        preferred_2letter = iso639_2_to_1.get(preferred_3letter, preferred_3letter)
+        if preferred_2letter in langs:
+            default = preferred_2letter
 
     if len(langs_sorted) == 1:
         only_name = lang_name(status, default)

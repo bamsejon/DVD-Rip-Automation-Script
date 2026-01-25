@@ -48,14 +48,54 @@ If you prefer not to use Keepedia, follow the traditional setup below.
 
 ### Prerequisites
 
-- **macOS** (tested on Ventura/Sonoma)
-- **Git** - `xcode-select --install`
-- **Python 3.8+** - `brew install python`
+- **macOS, Linux, or Windows**
+- **Python 3.8+**
 - **MakeMKV** - Download from [makemkv.com](https://www.makemkv.com/download/)
-- **HandBrakeCLI** - `brew install handbrake`
+- **HandBrakeCLI** - Command-line version of HandBrake
+- **MKVToolNix** - For setting track metadata (language, commentary labels)
 - **OMDB API Key** - Get one at [omdbapi.com](https://www.omdbapi.com/apikey.aspx)
 
 > **Note:** Only the Patreon tier OMDB API key (1000 req/day) is tested and confirmed working.
+
+### Platform-Specific Installation
+
+#### macOS (Homebrew)
+```bash
+# Install Homebrew if not installed
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install dependencies
+brew install python handbrake mkvtoolnix
+
+# Install MakeMKV manually from https://www.makemkv.com/download/
+```
+
+#### Linux (Debian/Ubuntu)
+```bash
+# Install dependencies
+sudo apt update
+sudo apt install python3 python3-pip python3-venv handbrake-cli mkvtoolnix
+
+# Install MakeMKV (manual installation)
+# Download from https://www.makemkv.com/download/ and follow instructions
+# Or use the snap: sudo snap install makemkv
+```
+
+#### Linux (Fedora/RHEL)
+```bash
+# Install dependencies
+sudo dnf install python3 python3-pip HandBrake-cli mkvtoolnix
+
+# Install MakeMKV from https://www.makemkv.com/download/
+```
+
+#### Windows
+1. **Python**: Download from [python.org](https://www.python.org/downloads/) (check "Add to PATH")
+2. **MakeMKV**: Download from [makemkv.com](https://www.makemkv.com/download/)
+3. **HandBrakeCLI**: Download from [handbrake.fr](https://handbrake.fr/downloads2.php)
+4. **MKVToolNix**: Download from [mkvtoolnix.download](https://mkvtoolnix.download/downloads.html)
+
+> **Windows Note:** Add HandBrakeCLI and mkvpropedit to your PATH, or set full paths in your settings.
 
 ### Installation
 
@@ -95,10 +135,14 @@ python3 moviedisc_ripper.py
 1. **Disc Detection** - Automatically detects DVD or Blu-ray
 2. **Identification** - Checks DiscFinder API, then OMDB
 3. **Ripping** - MakeMKV extracts all titles
-4. **Title Selection** - Picks the main movie (≥45 minutes)
-5. **Transcoding** - HandBrake compresses with quality presets
-6. **Organization** - Creates Jellyfin-compatible folder structure
-7. **Cleanup** - Removes temp files, ejects disc
+4. **Audio Analysis** - Detects commentary tracks by analyzing dynamic range
+5. **Smart Track Selection** - Auto-selects best audio (5.1 > stereo), respects your preferences
+6. **Title Selection** - Picks the main movie (≥45 minutes)
+7. **Transcoding** - HandBrake compresses with quality presets
+8. **Track Metadata** - mkvpropedit sets language and "Commentary" labels in final MKV
+9. **Cover Art** - Downloads poster/backdrop in your preferred language
+10. **Organization** - Creates Jellyfin/Plex-compatible folder structure
+11. **Cleanup** - Removes temp files, ejects disc
 
 ---
 

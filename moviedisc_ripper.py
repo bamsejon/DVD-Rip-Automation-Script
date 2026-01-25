@@ -179,6 +179,94 @@ def analyze_audio_track(mkv_path: str, track_index: int, sample_duration: int = 
         return None
 
 
+def get_audio_track_score(track: dict) -> int:
+    """
+    Score an audio track for quality comparison.
+    Higher score = better quality.
+    """
+    score = 0
+
+    # Channel format scoring (surround > stereo > mono)
+    channel_format = (track.get("channel_format") or "").lower()
+    if "7.1" in channel_format:
+        score += 400
+    elif "5.1" in channel_format:
+        score += 300
+    elif "stereo" in channel_format or "2.0" in channel_format:
+        score += 200
+    elif "mono" in channel_format or "1.0" in channel_format:
+        score += 100
+
+    # Codec scoring (lossless > lossy)
+    codec_name = (track.get("codec_name") or "").lower()
+    codec_format = (track.get("codec_format") or "").lower()
+
+    # Lossless codecs
+    if any(x in codec_name or x in codec_format for x in ["truehd", "dts-hd", "dts:x", "flac", "pcm", "lpcm"]):
+        score += 50
+    # Atmos adds bonus
+    if track.get("is_atmos"):
+        score += 25
+
+    return score
+
+
+def apply_audio_track_preferences(audio_tracks: list, settings: dict) -> list:
+    """
+    Apply user preferences to select which audio tracks should be enabled.
+
+    - Disables commentary tracks unless include_commentary is True
+    - Selects the best audio track based on audio_quality_preference
+    """
+    if not audio_tracks:
+        return audio_tracks
+
+    include_commentary = settings.get("include_commentary", False)
+    audio_quality = settings.get("audio_quality_preference", "best")
+
+    # First pass: mark commentary tracks
+    main_tracks = []
+    commentary_tracks = []
+
+    for track in audio_tracks:
+        if track.get("is_commentary"):
+            commentary_tracks.append(track)
+        else:
+            main_tracks.append(track)
+
+    # Disable all tracks first
+    for track in audio_tracks:
+        track["enabled"] = False
+
+    # Enable best main track
+    if main_tracks:
+        if audio_quality == "best":
+            # Sort by score (highest first) and enable the best one
+            main_tracks_sorted = sorted(main_tracks, key=get_audio_track_score, reverse=True)
+            best_track = main_tracks_sorted[0]
+            best_track["enabled"] = True
+            print(f"   🎧 Selected best audio: {best_track.get('channel_format', 'Unknown')} {best_track.get('codec_name', '')}")
+        elif audio_quality == "lossless":
+            # Enable only lossless tracks
+            for track in main_tracks:
+                codec = (track.get("codec_name") or "").lower()
+                if any(x in codec for x in ["truehd", "dts-hd", "flac", "pcm", "lpcm"]):
+                    track["enabled"] = True
+        elif audio_quality == "lossy":
+            # Enable only lossy tracks (smaller files)
+            for track in main_tracks:
+                codec = (track.get("codec_name") or "").lower()
+                if not any(x in codec for x in ["truehd", "dts-hd", "flac", "pcm", "lpcm"]):
+                    track["enabled"] = True
+
+    # Enable commentary if user wants it
+    if include_commentary:
+        for track in commentary_tracks:
+            track["enabled"] = True
+
+    return audio_tracks
+
+
 def analyze_audio_tracks_for_title(mkv_path: str, audio_tracks: list) -> list:
     """
     Analyze all audio tracks in an MKV file and update is_commentary flag.
@@ -221,10 +309,14 @@ def analyze_audio_tracks_for_title(mkv_path: str, audio_tracks: list) -> list:
 def analyze_and_update_metadata(checksum: str, temp_dir: str):
     """
     Analyze all ripped MKV files and update the API with commentary detection results.
+    Also applies user preferences for audio track selection.
     """
     print("\n" + "=" * 50)
     print("🔬 AUDIO ANALYSIS PHASE")
     print("=" * 50)
+
+    # Get user settings for audio preferences
+    settings = get_user_settings()
 
     # Get current metadata items from API
     try:
@@ -260,8 +352,11 @@ def analyze_and_update_metadata(checksum: str, temp_dir: str):
         mkv_path = os.path.join(temp_dir, matches[0])
         print(f"\n📀 Analyzing: {matches[0]}")
 
-        # Analyze audio tracks
+        # Analyze audio tracks for commentary detection
         updated_tracks = analyze_audio_tracks_for_title(mkv_path, audio_tracks)
+
+        # Apply user preferences for track selection
+        updated_tracks = apply_audio_track_preferences(updated_tracks, settings)
 
         # Update API with analysis results
         try:

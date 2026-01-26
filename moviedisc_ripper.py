@@ -42,6 +42,12 @@ def parse_args():
         help="Language code for cover art (e.g. sv, en, de)"
     )
 
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check that all dependencies are installed and working"
+    )
+
     return parser.parse_args()
 
 # ==========================================================
@@ -50,10 +56,8 @@ def parse_args():
 
 load_dotenv()
 
+# OMDB key can come from .env or from user settings (fetched later)
 OMDB_API_KEY = os.getenv("OMDB_API_KEY")
-if not OMDB_API_KEY:
-    print("❌ OMDB_API_KEY not set")
-    sys.exit(1)
 
 # Optional: User token for linking rips to your Keepedia account
 USER_TOKEN = os.getenv("USER_TOKEN")
@@ -67,7 +71,7 @@ DISCFINDER_API = "https://discfinder-api.bylund.cloud"
 MAKE_MKV_PATH = "/Applications/MakeMKV.app/Contents/MacOS/makemkvcon"
 HANDBRAKE_CLI_PATH = "/opt/homebrew/bin/HandBrakeCLI"
 
-TEMP_DIR = "/Volumes/Jonte/rip/tmp"
+TEMP_BASE_DIR = "/Volumes/Jonte/rip/tmp"
 PREVIEW_PORT = 8765
 MOVIES_DIR = "/Volumes/nfs-share/media/rippat/movies"
 
@@ -380,7 +384,7 @@ def analyze_and_update_metadata(checksum: str, temp_dir: str):
 # HELPERS
 # ==========================================================
 
-def ensure_preview_server():
+def ensure_preview_server(temp_dir: str = None):
     """
     Starts local preview server if not already running.
     """
@@ -396,7 +400,7 @@ def ensure_preview_server():
     print("▶️ Starting local preview server…")
 
     env = os.environ.copy()
-    env["DISC_PREVIEW_DIR"] = TEMP_DIR
+    env["DISC_PREVIEW_DIR"] = temp_dir or TEMP_BASE_DIR
     env["DISC_PREVIEW_PORT"] = str(PREVIEW_PORT)
 
     subprocess.Popen(
@@ -506,6 +510,164 @@ def eject_disc(volume_name: str):
         )
     except subprocess.CalledProcessError:
         print("⚠️  Failed to eject disc (continuing anyway)")
+
+def check_dependencies():
+    """
+    Check that all required dependencies are installed and working.
+    Returns True if all checks pass, False otherwise.
+    """
+    print("\n🔍 Checking dependencies...\n")
+    all_ok = True
+
+    # 1. MakeMKV
+    makemkv_path = MAKE_MKV_PATH
+    if os.path.exists(makemkv_path):
+        # Check if registered
+        try:
+            result = subprocess.run(
+                [makemkv_path, "reg"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            output = result.stdout + result.stderr
+            if "This application is registered" in output:
+                print("✅ MakeMKV found and registered")
+            elif "evaluation period" in output.lower() or "trial" in output.lower():
+                print("⚠️  MakeMKV found (trial mode)")
+            else:
+                print("✅ MakeMKV found")
+        except Exception:
+            print("✅ MakeMKV found")
+    else:
+        print(f"❌ MakeMKV not found at {makemkv_path}")
+        all_ok = False
+
+    # 2. HandBrakeCLI
+    handbrake_path = HANDBRAKE_CLI_PATH
+    if os.path.exists(handbrake_path) or shutil.which("HandBrakeCLI"):
+        try:
+            result = subprocess.run(
+                [handbrake_path if os.path.exists(handbrake_path) else "HandBrakeCLI", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            version_match = re.search(r"HandBrake\s+([\d.]+)", result.stdout)
+            if version_match:
+                print(f"✅ HandBrakeCLI found (v{version_match.group(1)})")
+            else:
+                print("✅ HandBrakeCLI found")
+        except Exception:
+            print("✅ HandBrakeCLI found")
+    else:
+        print(f"❌ HandBrakeCLI not found at {handbrake_path}")
+        all_ok = False
+
+    # 3. mkvpropedit (MKVToolNix)
+    if shutil.which("mkvpropedit"):
+        try:
+            result = subprocess.run(
+                ["mkvpropedit", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            version_match = re.search(r"v([\d.]+)", result.stdout)
+            if version_match:
+                print(f"✅ mkvpropedit found (v{version_match.group(1)})")
+            else:
+                print("✅ mkvpropedit found")
+        except Exception:
+            print("✅ mkvpropedit found")
+    else:
+        print("⚠️  mkvpropedit not found (optional - track metadata won't be set)")
+
+    # 4. ffprobe (ffmpeg)
+    if shutil.which("ffprobe"):
+        try:
+            result = subprocess.run(
+                ["ffprobe", "-version"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            version_match = re.search(r"ffprobe version ([\d.]+)", result.stdout)
+            if version_match:
+                print(f"✅ ffprobe found (v{version_match.group(1)})")
+            else:
+                print("✅ ffprobe found")
+        except Exception:
+            print("✅ ffprobe found")
+    else:
+        print("❌ ffprobe not found (required for duration detection)")
+        all_ok = False
+
+    # 5. ffmpeg (for audio analysis)
+    if shutil.which("ffmpeg"):
+        print("✅ ffmpeg found")
+    else:
+        print("⚠️  ffmpeg not found (optional - commentary detection won't work)")
+
+    # 6. API connection
+    try:
+        r = requests.get(f"{DISCFINDER_API}/health", timeout=5)
+        if r.status_code == 200:
+            print("✅ API connection OK")
+        else:
+            print(f"⚠️  API returned status {r.status_code}")
+    except Exception as e:
+        print(f"❌ API connection failed: {e}")
+        all_ok = False
+
+    # 7. User token (optional but recommended)
+    if USER_TOKEN:
+        try:
+            headers = {"Authorization": f"Bearer {USER_TOKEN}"}
+            r = requests.get(f"{DISCFINDER_API}/users/me", headers=headers, timeout=5)
+            if r.status_code == 200:
+                user = r.json()
+                print(f"✅ Logged in as: {user.get('email', 'Unknown')}")
+            else:
+                print("⚠️  User token invalid or expired")
+        except Exception:
+            print("⚠️  Could not verify user token")
+    else:
+        print("ℹ️  No USER_TOKEN set (discs won't be linked to your account)")
+
+    # 8. OMDB API key (check local and settings)
+    omdb_key = OMDB_API_KEY
+    omdb_source = ".env"
+    if not omdb_key and USER_TOKEN:
+        settings = get_user_settings()
+        omdb_key = settings.get("omdb_api_key")
+        omdb_source = "settings"
+
+    if omdb_key:
+        try:
+            url = f"https://www.omdbapi.com/?t=test&apikey={omdb_key}"
+            r = requests.get(url, timeout=5)
+            data = r.json()
+            if data.get("Response") == "False" and "Invalid API key" in data.get("Error", ""):
+                print(f"❌ OMDB API key is invalid (from {omdb_source})")
+                all_ok = False
+            else:
+                print(f"✅ OMDB API key valid (from {omdb_source})")
+        except Exception:
+            print("⚠️  Could not verify OMDB API key")
+    else:
+        print("❌ OMDB_API_KEY not set (check .env or keepedia.org/settings)")
+        all_ok = False
+
+    # Summary
+    print("")
+    if all_ok:
+        print("🎉 All required dependencies are installed!")
+    else:
+        print("⚠️  Some required dependencies are missing. Please install them before ripping.")
+
+    return all_ok
+
 
 def ensure_mount_or_die():
     """
@@ -942,6 +1104,175 @@ def get_user_settings() -> dict:
         return {}
 
 
+def send_notification(title: str, message: str, success: bool = True):
+    """
+    Send a push notification when rip completes.
+    Supports Pushover, Telegram, and Discord webhooks.
+    """
+    settings = get_user_settings()
+
+    notify_service = settings.get("notification_service")
+    if not notify_service or notify_service == "none":
+        return
+
+    try:
+        if notify_service == "pushover":
+            user_key = settings.get("pushover_user_key")
+            app_token = settings.get("pushover_app_token")
+            if not user_key or not app_token:
+                return
+
+            requests.post(
+                "https://api.pushover.net/1/messages.json",
+                data={
+                    "token": app_token,
+                    "user": user_key,
+                    "title": title,
+                    "message": message,
+                    "priority": 0 if success else 1
+                },
+                timeout=10
+            )
+            print("📱 Notification sent via Pushover")
+
+        elif notify_service == "telegram":
+            bot_token = settings.get("telegram_bot_token")
+            chat_id = settings.get("telegram_chat_id")
+            if not bot_token or not chat_id:
+                return
+
+            emoji = "✅" if success else "❌"
+            text = f"{emoji} *{title}*\n{message}"
+
+            requests.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "Markdown"
+                },
+                timeout=10
+            )
+            print("📱 Notification sent via Telegram")
+
+        elif notify_service == "discord":
+            webhook_url = settings.get("discord_webhook_url")
+            if not webhook_url:
+                return
+
+            color = 0x00ff00 if success else 0xff0000  # Green or red
+
+            requests.post(
+                webhook_url,
+                json={
+                    "embeds": [{
+                        "title": title,
+                        "description": message,
+                        "color": color
+                    }]
+                },
+                timeout=10
+            )
+            print("📱 Notification sent via Discord")
+
+    except Exception as e:
+        print(f"⚠️ Failed to send notification: {e}")
+
+
+def ensure_omdb_api_key():
+    """
+    Ensure OMDB_API_KEY is available. If not set locally, try to fetch from user settings.
+    """
+    global OMDB_API_KEY
+
+    if OMDB_API_KEY:
+        return True  # Already set from .env
+
+    settings = get_user_settings()
+    omdb_key = settings.get("omdb_api_key")
+
+    if omdb_key:
+        OMDB_API_KEY = omdb_key
+        print("🔑 Using OMDB API key from settings")
+        return True
+
+    print("❌ OMDB_API_KEY not set")
+    print("   Set it in your .env file or at https://keepedia.org/settings")
+    return False
+
+
+def ensure_makemkv_registered():
+    """
+    Check if MakeMKV is registered. If not, and user has a key in settings,
+    write it to the MakeMKV settings file.
+    """
+    settings = get_user_settings()
+    makemkv_key = settings.get("makemkv_key")
+
+    if not makemkv_key:
+        return  # No key configured, nothing to do
+
+    # Determine settings file path based on platform
+    if sys.platform == "darwin":
+        settings_dir = os.path.expanduser("~/.MakeMKV")
+        settings_file = os.path.join(settings_dir, "settings.conf")
+    elif sys.platform == "win32":
+        appdata = os.environ.get("APPDATA", "")
+        settings_dir = os.path.join(appdata, "MakeMKV")
+        settings_file = os.path.join(settings_dir, "settings.conf")
+    else:  # Linux
+        settings_dir = os.path.expanduser("~/.MakeMKV")
+        settings_file = os.path.join(settings_dir, "settings.conf")
+
+    # Check if already registered by looking for app_Key in settings
+    current_key = None
+    if os.path.exists(settings_file):
+        try:
+            with open(settings_file, "r") as f:
+                for line in f:
+                    if line.strip().startswith("app_Key"):
+                        # Extract current key value
+                        parts = line.split("=", 1)
+                        if len(parts) == 2:
+                            current_key = parts[1].strip().strip('"')
+                        break
+        except Exception:
+            pass
+
+    # If key already matches, nothing to do
+    if current_key == makemkv_key:
+        return
+
+    # If there's a different key already set, don't overwrite
+    if current_key and current_key != makemkv_key:
+        print("ℹ️ MakeMKV already has a registration key configured")
+        return
+
+    # Apply the key from settings
+    print("🔑 Applying MakeMKV registration key from settings...")
+
+    try:
+        # Create settings directory if it doesn't exist
+        os.makedirs(settings_dir, exist_ok=True)
+
+        # Read existing settings (if any)
+        existing_lines = []
+        if os.path.exists(settings_file):
+            with open(settings_file, "r") as f:
+                existing_lines = f.readlines()
+
+        # Remove any existing app_Key line and add new one
+        new_lines = [line for line in existing_lines if not line.strip().startswith("app_Key")]
+        new_lines.append(f'app_Key = "{makemkv_key}"\n')
+
+        with open(settings_file, "w") as f:
+            f.writelines(new_lines)
+
+        print("   ✅ MakeMKV registration key applied")
+    except Exception as e:
+        print(f"   ⚠️ Failed to apply MakeMKV key: {e}")
+
+
 def asset_status_all(checksum):
     """
     Returns dict:
@@ -1146,49 +1477,6 @@ def show_missing_assets_prompt_if_none(status: dict, disc_id: int):
 
 
 # ==========================================================
-# MAKEMKV
-# ==========================================================
-
-def rip_with_makemkv():
-    os.makedirs(TEMP_DIR, exist_ok=True)
-    for f in os.listdir(TEMP_DIR):
-        p = os.path.join(TEMP_DIR, f)
-        if os.path.isfile(p):
-            os.remove(p)
-
-    # Dump ALL titles instead of just title 0
-    run_makemkv([MAKE_MKV_PATH, "mkv", "disc:0", "all", TEMP_DIR])
-
-    mkvs = [
-        os.path.join(TEMP_DIR, f)
-        for f in os.listdir(TEMP_DIR)
-        if f.lower().endswith(".mkv")
-    ]
-
-    if not mkvs:
-        print("❌ No MKV produced")
-        sys.exit(1)
-
-    # Pick the best candidate by duration (to avoid trailers/bonus)
-    candidates = []
-    for p in mkvs:
-        dur = get_duration_seconds(p)
-        print(f"⏱  Title candidate: {os.path.basename(p)} – {int(dur // 60)} min")
-        if dur >= MIN_MAIN_MOVIE_SECONDS:
-            candidates.append((p, dur))
-
-    if not candidates:
-        # Fallback: if nothing >= 45 min, pick longest anyway (still better than random)
-        print("⚠️  No title >= 45 minutes found. Falling back to longest title on disc.")
-        candidates = [(p, get_duration_seconds(p)) for p in mkvs]
-
-    candidates.sort(key=lambda x: x[1], reverse=True)
-    main_mkv = candidates[0][0]
-
-    print(f"🎬 Selected main title: {os.path.basename(main_mkv)}")
-    return main_mkv
-
-# ==========================================================
 # HANDBRAKE
 # ==========================================================
 
@@ -1343,6 +1631,12 @@ def disc_fingerprint(volume: str, disc_type: str) -> str:
 
 def main():
     args = parse_args()
+
+    # Health check mode
+    if args.check:
+        success = check_dependencies()
+        sys.exit(0 if success else 1)
+
     movie = None
     volume, disc_type = detect_disc()
     if not volume:
@@ -1350,6 +1644,13 @@ def main():
         sys.exit(1)
 
     print(f"\n🎞 Disc: {volume}")
+
+    # Ensure OMDB API key is available
+    if not ensure_omdb_api_key():
+        sys.exit(1)
+
+    # Ensure MakeMKV is registered before ripping
+    ensure_makemkv_registered()
 
     legacy_checksum = sha256(volume)
     new_checksum = disc_fingerprint(volume, disc_type)
@@ -1384,9 +1685,9 @@ def main():
 
     checksum = new_checksum
 
-  
-
- 
+    # Create disc-specific temp directory (allows parallel rip + encode)
+    disc_temp_dir = os.path.join(TEMP_BASE_DIR, checksum[:16])
+    print(f"📁 Temp directory: {disc_temp_dir}")
 
     # ==========================================
     # COVERART-ONLY MODE
@@ -1581,21 +1882,22 @@ def main():
     # RIP ALL TITLES (ONCE)
     # ======================================================
 
-    os.makedirs(TEMP_DIR, exist_ok=True)
-    for f in os.listdir(TEMP_DIR):
-        p = os.path.join(TEMP_DIR, f)
+    os.makedirs(disc_temp_dir, exist_ok=True)
+    # Clean only this disc's temp directory (not others that may be encoding)
+    for f in os.listdir(disc_temp_dir):
+        p = os.path.join(disc_temp_dir, f)
         if os.path.isfile(p):
             os.remove(p)
 
-    run_makemkv([MAKE_MKV_PATH, "mkv", "disc:0", "all", TEMP_DIR])
+    run_makemkv([MAKE_MKV_PATH, "mkv", "disc:0", "all", disc_temp_dir])
     eject_disc(volume)
 
     # ======================================================
     # AUDIO ANALYSIS (Commentary Detection)
     # ======================================================
-    analyze_and_update_metadata(checksum, TEMP_DIR)
+    analyze_and_update_metadata(checksum, disc_temp_dir)
 
-    ensure_preview_server()
+    ensure_preview_server(disc_temp_dir)
     print("🛠 Metadata ready to edit:")
     print(f"   https://keepedia.org/metadata/{disc_id}")
     print("⏳ Waiting for metadata to be marked READY…")
@@ -1617,18 +1919,18 @@ def main():
         # Find MKV file matching this title_index (MakeMKV names files *_tXX.mkv)
         pattern = f"_t{title_index:02d}.mkv"
         matches = [
-            f for f in os.listdir(TEMP_DIR)
+            f for f in os.listdir(disc_temp_dir)
             if f.endswith(pattern)
         ]
 
         if not matches:
             print(f"❌ No MKV found for title_index {title_index:02d}")
             print("   Available files:")
-            for f in os.listdir(TEMP_DIR):
+            for f in os.listdir(disc_temp_dir):
                 print(f"   - {f}")
             sys.exit(1)
 
-        raw_path = os.path.join(TEMP_DIR, matches[0])
+        raw_path = os.path.join(disc_temp_dir, matches[0])
 
         out_path = build_output_path(movie_dir, item)
 
@@ -1649,6 +1951,15 @@ def main():
         except FileNotFoundError:
             pass
 
+    # Clean up empty disc-specific temp directory
+    try:
+        remaining = os.listdir(disc_temp_dir)
+        if not remaining:
+            os.rmdir(disc_temp_dir)
+            print(f"🧹 Cleaned up temp directory: {disc_temp_dir}")
+    except Exception:
+        pass  # Not critical if cleanup fails
+
     # ======================================================
     # COVER ART PHASE 2 (AFTER ENCODE)
     # ======================================================
@@ -1666,6 +1977,13 @@ def main():
             print("\n🙏 Was it you? If so – thank you so much for contributing to the community!")
 
     print(f"\n🎉 DONE → {movie_dir}")
+
+    # Send completion notification
+    send_notification(
+        title="Rip Complete",
+        message=f"{title} ({year}) is ready in your library",
+        success=True
+    )
 
 # ==========================================================
 # ENTRY

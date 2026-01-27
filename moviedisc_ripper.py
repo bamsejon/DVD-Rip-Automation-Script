@@ -1982,15 +1982,83 @@ def main():
 
     os.makedirs(disc_temp_dir, exist_ok=True)
     existing_temp_files = [f for f in os.listdir(disc_temp_dir) if f.endswith('.mkv') and not f.startswith('._')]
+    skip_makemkv = False
 
     if existing_temp_files:
-        print(f"\n📀 Disc seems to already be ripped!")
-        print(f"   Found {len(existing_temp_files)} temp file(s) in: {disc_temp_dir}")
+        print(f"\n📀 Found existing temp files in: {disc_temp_dir}")
         for f in existing_temp_files:
-            print(f"   ✓ {f}")
-        print("\n⏭️  Skipping MakeMKV rip, continuing to transcoding...")
-        eject_disc(volume)
-    else:
+            size_mb = os.path.getsize(os.path.join(disc_temp_dir, f)) / (1024 * 1024)
+            print(f"   • {f} ({size_mb:.1f} MB)")
+
+        # Check if we have metadata to validate against
+        metadata_items = get_enabled_metadata_items(checksum)
+        if not metadata_items:
+            # Try to get ALL items (not just enabled) for validation
+            try:
+                r = requests.get(f"{DISCFINDER_API}/metadata-layout/{checksum}/items", timeout=10)
+                if r.status_code == 200:
+                    metadata_items = r.json()
+            except Exception:
+                pass
+
+        if metadata_items:
+            # Validate temp files against metadata
+            print(f"\n🔍 Validating against metadata ({len(metadata_items)} items)...")
+            all_valid = True
+            matched_files = []
+
+            for item in metadata_items:
+                source_file = item.get("source_file")
+                expected_size = item.get("size_bytes", 0)
+
+                if source_file:
+                    temp_path = os.path.join(disc_temp_dir, source_file)
+                    if os.path.isfile(temp_path):
+                        actual_size = os.path.getsize(temp_path)
+                        # Allow 5% size tolerance (MakeMKV estimates can vary)
+                        size_diff = abs(actual_size - expected_size) / max(expected_size, 1)
+                        if size_diff < 0.05 or expected_size == 0:
+                            matched_files.append(f"   ✓ {source_file} (size OK)")
+                        else:
+                            matched_files.append(f"   ⚠️ {source_file} (size mismatch: {actual_size/1e9:.2f}GB vs expected {expected_size/1e9:.2f}GB)")
+                            all_valid = False
+                    else:
+                        matched_files.append(f"   ❌ {source_file} (missing)")
+                        all_valid = False
+
+            for m in matched_files:
+                print(m)
+
+            if all_valid:
+                print("\n✅ All temp files validated against metadata!")
+                print("⏭️  Skipping MakeMKV rip, continuing to transcoding...")
+                skip_makemkv = True
+                eject_disc(volume)
+            else:
+                print("\n⚠️  Some temp files don't match metadata.")
+                answer = input("   Re-rip disc? [y/N]: ").strip().lower()
+                if answer == 'y':
+                    skip_makemkv = False
+                else:
+                    print("   Using existing temp files anyway...")
+                    skip_makemkv = True
+                    eject_disc(volume)
+        else:
+            # No metadata available - ask user what to do
+            print("\n⚠️  No metadata found for this disc - cannot validate temp files.")
+            print("   Options:")
+            print("   [u] Use existing temp files (skip MakeMKV)")
+            print("   [r] Re-rip the disc (overwrite temp files)")
+            answer = input("   Choice [u/R]: ").strip().lower()
+            if answer == 'u':
+                print("   Using existing temp files...")
+                skip_makemkv = True
+                eject_disc(volume)
+            else:
+                print("   Will re-rip the disc...")
+                skip_makemkv = False
+
+    if not skip_makemkv:
         # ======================================================
         # RIP ALL TITLES (ONCE)
         # ======================================================

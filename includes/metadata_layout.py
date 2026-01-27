@@ -2,7 +2,8 @@
 import time
 import requests
 
-DISCFINDER_API = "https://discfinder-api.bylund.cloud"
+import os
+DISCFINDER_API = os.getenv("DISCFINDER_API", "https://disc-api.bylund.cloud")
 
 
 def wait_for_metadata_layout_ready(checksum: str, poll_interval: int = 3):

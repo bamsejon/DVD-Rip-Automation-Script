@@ -1648,6 +1648,56 @@ def transcode(input_file, output_file, preset, disc_type, audio_tracks=None, sub
     run(cmd)
 
 
+def get_track_info_from_mkv(mkv_path: str) -> dict:
+    """
+    Extract track info from MKV file using mkvmerge -J.
+    Returns dict with 'audio' and 'subtitle' lists containing track info.
+    """
+    mkvmerge = shutil.which("mkvmerge")
+    if not mkvmerge:
+        return {"audio": [], "subtitle": []}
+
+    try:
+        result = subprocess.run(
+            [mkvmerge, "-J", mkv_path],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode != 0:
+            return {"audio": [], "subtitle": []}
+
+        import json
+        data = json.loads(result.stdout)
+
+        audio_tracks = []
+        subtitle_tracks = []
+
+        for track in data.get("tracks", []):
+            props = track.get("properties", {})
+            track_type = track.get("type")
+
+            if track_type == "audio":
+                audio_tracks.append({
+                    "id": track.get("id"),
+                    "language": props.get("language", "und"),
+                    "language_name": props.get("language_name", ""),
+                    "track_name": props.get("track_name", ""),
+                })
+            elif track_type == "subtitles":
+                subtitle_tracks.append({
+                    "id": track.get("id"),
+                    "language": props.get("language", "und"),
+                    "language_name": props.get("language_name", ""),
+                    "track_name": props.get("track_name", ""),
+                })
+
+        return {"audio": audio_tracks, "subtitle": subtitle_tracks}
+    except Exception as e:
+        print(f"⚠️ Could not read MKV track info: {e}")
+        return {"audio": [], "subtitle": []}
+
+
 def apply_track_metadata(output_file: str, audio_tracks: list, subtitle_tracks: list):
     """
     Use mkvpropedit to set track language and names in the final MKV.
@@ -1655,12 +1705,25 @@ def apply_track_metadata(output_file: str, audio_tracks: list, subtitle_tracks: 
 
     Note: audio_tracks and subtitle_tracks should only contain enabled tracks
     (the ones actually included in the output file).
+
+    If API track data is missing language info, we read it from the output MKV.
     """
     # Check if mkvpropedit is available
     mkvpropedit = shutil.which("mkvpropedit")
     if not mkvpropedit:
         print("⚠️ mkvpropedit not found - skipping track metadata")
         return
+
+    # If track data is missing language info, get it from the MKV file itself
+    mkv_info = None
+    needs_mkv_info = any(
+        not t.get("language_code") for t in (audio_tracks or [])
+    ) or any(
+        not t.get("language_code") for t in (subtitle_tracks or [])
+    )
+
+    if needs_mkv_info:
+        mkv_info = get_track_info_from_mkv(output_file)
 
     cmd = [mkvpropedit, output_file]
 
@@ -1688,13 +1751,23 @@ def apply_track_metadata(output_file: str, audio_tracks: list, subtitle_tracks: 
 
     # Apply audio track metadata (1-based index matches output track order)
     for i, track in enumerate(audio_tracks or [], start=1):
-        lang_code = track.get("language_code", "und")
+        lang_code = track.get("language_code")
+        lang_name = track.get("language_name")
+
+        # Fallback to MKV file info if API data is missing
+        if not lang_code and mkv_info and i <= len(mkv_info.get("audio", [])):
+            mkv_track = mkv_info["audio"][i - 1]
+            lang_code = mkv_track.get("language", "und")
+            if not lang_name:
+                lang_name = mkv_track.get("language_name", "")
+
+        lang_code = lang_code or "und"
         lang_code = lang_map.get(lang_code, lang_code)
 
         # Build track name
         track_name_parts = []
-        if track.get("language_name") and track["language_name"] != "Unknown":
-            track_name_parts.append(track["language_name"])
+        if lang_name and lang_name != "Unknown":
+            track_name_parts.append(lang_name)
         if track.get("channel_format"):
             track_name_parts.append(track["channel_format"])
         if track.get("is_commentary"):
@@ -1709,13 +1782,23 @@ def apply_track_metadata(output_file: str, audio_tracks: list, subtitle_tracks: 
 
     # Apply subtitle track metadata (1-based index matches output track order)
     for i, track in enumerate(subtitle_tracks or [], start=1):
-        lang_code = track.get("language_code", "und")
+        lang_code = track.get("language_code")
+        lang_name = track.get("language_name")
+
+        # Fallback to MKV file info if API data is missing
+        if not lang_code and mkv_info and i <= len(mkv_info.get("subtitle", [])):
+            mkv_track = mkv_info["subtitle"][i - 1]
+            lang_code = mkv_track.get("language", "und")
+            if not lang_name:
+                lang_name = mkv_track.get("language_name", "")
+
+        lang_code = lang_code or "und"
         lang_code = lang_map.get(lang_code, lang_code)
 
         cmd.extend(["--edit", f"track:s{i}"])
         cmd.extend(["--set", f"language={lang_code}"])
-        if track.get("language_name") and track["language_name"] != "Unknown":
-            cmd.extend(["--set", f"name={track['language_name']}"])
+        if lang_name and lang_name != "Unknown":
+            cmd.extend(["--set", f"name={lang_name}"])
 
     if len(cmd) > 2:  # Only run if we have edits to make
         print(f"\n📝 Applying track metadata...")

@@ -404,16 +404,38 @@ def analyze_and_update_metadata(checksum: str, temp_dir: str):
 
 def ensure_preview_server(temp_dir: str = None):
     """
-    Starts local preview server if not already running.
+    Starts local preview server, killing any existing process on the port first.
+    This ensures we always run the latest version of the server.
     """
     import socket
+    import signal
 
     def is_port_open(port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(("127.0.0.1", port)) == 0
 
+    def kill_process_on_port(port):
+        """Kill any process listening on the given port."""
+        try:
+            result = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True,
+                text=True
+            )
+            if result.stdout.strip():
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    try:
+                        os.kill(int(pid), signal.SIGTERM)
+                        print(f"🔄 Killed old preview server (PID {pid})")
+                    except (ProcessLookupError, ValueError):
+                        pass
+                time.sleep(0.3)  # Give it time to die
+        except Exception:
+            pass
+
     if is_port_open(PREVIEW_PORT):
-        return  # already running
+        kill_process_on_port(PREVIEW_PORT)
 
     print("▶️ Starting local preview server…")
 

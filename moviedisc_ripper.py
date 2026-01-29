@@ -1714,16 +1714,14 @@ def apply_track_metadata(output_file: str, audio_tracks: list, subtitle_tracks: 
         print("⚠️ mkvpropedit not found - skipping track metadata")
         return
 
-    # If track data is missing language info, get it from the MKV file itself
-    mkv_info = None
-    needs_mkv_info = any(
-        not t.get("language_code") for t in (audio_tracks or [])
-    ) or any(
-        not t.get("language_code") for t in (subtitle_tracks or [])
-    )
+    # Always get MKV info to:
+    # 1. Know what tracks actually exist in the output file
+    # 2. Fallback for language info if API data is missing
+    mkv_info = get_track_info_from_mkv(output_file)
 
-    if needs_mkv_info:
-        mkv_info = get_track_info_from_mkv(output_file)
+    # Count actual tracks in output file
+    actual_audio_count = len(mkv_info.get("audio", []))
+    actual_subtitle_count = len(mkv_info.get("subtitle", []))
 
     cmd = [mkvpropedit, output_file]
 
@@ -1751,11 +1749,15 @@ def apply_track_metadata(output_file: str, audio_tracks: list, subtitle_tracks: 
 
     # Apply audio track metadata (1-based index matches output track order)
     for i, track in enumerate(audio_tracks or [], start=1):
+        # Skip if this track doesn't exist in the output file
+        if i > actual_audio_count:
+            continue
+
         lang_code = track.get("language_code")
         lang_name = track.get("language_name")
 
         # Fallback to MKV file info if API data is missing
-        if not lang_code and mkv_info and i <= len(mkv_info.get("audio", [])):
+        if not lang_code and i <= len(mkv_info.get("audio", [])):
             mkv_track = mkv_info["audio"][i - 1]
             lang_code = mkv_track.get("language", "und")
             if not lang_name:
@@ -1782,11 +1784,15 @@ def apply_track_metadata(output_file: str, audio_tracks: list, subtitle_tracks: 
 
     # Apply subtitle track metadata (1-based index matches output track order)
     for i, track in enumerate(subtitle_tracks or [], start=1):
+        # Skip if this track doesn't exist in the output file
+        if i > actual_subtitle_count:
+            continue
+
         lang_code = track.get("language_code")
         lang_name = track.get("language_name")
 
         # Fallback to MKV file info if API data is missing
-        if not lang_code and mkv_info and i <= len(mkv_info.get("subtitle", [])):
+        if not lang_code and i <= len(mkv_info.get("subtitle", [])):
             mkv_track = mkv_info["subtitle"][i - 1]
             lang_code = mkv_track.get("language", "und")
             if not lang_name:

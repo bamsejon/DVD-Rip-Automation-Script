@@ -902,6 +902,22 @@ def tmdb_find_by_imdb(imdb_id):
         }
     return None
 
+def tmdb_get_movie(tmdb_id):
+    """Get full movie details from TMDB, including IMDb ID."""
+    if not tmdb_id:
+        return None
+    data = _api_get(f"/tmdb/movie/{tmdb_id}")
+    if not data:
+        return None
+    return {
+        "Title": data.get("title"),
+        "Year": data.get("release_date", "")[:4],
+        "imdbID": data.get("imdb_id"),
+        "tmdbID": data.get("id"),
+        "Plot": data.get("overview"),
+        "Poster": f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get("poster_path") else None
+    }
+
 # ==========================================================
 # INTERACTIVE SEARCH
 # ==========================================================
@@ -984,19 +1000,24 @@ def interactive_imdb_search():
                 print("❌ Invalid choice")
                 continue
 
-        # Convert TMDB result to our format
-        movie = {
-            "Title": pick.get("title"),
-            "Year": pick.get("release_date", "")[:4],
-            "tmdbID": pick.get("id"),
-            "imdbID": None,  # Will be looked up if needed
-            "Plot": pick.get("overview"),
-            "Poster": f"https://image.tmdb.org/t/p/w500{pick.get('poster_path')}" if pick.get("poster_path") else None
-        }
+        # Get full movie details (including IMDb ID)
+        movie = tmdb_get_movie(pick.get("id"))
+        if not movie:
+            # Fallback if details fetch fails
+            movie = {
+                "Title": pick.get("title"),
+                "Year": pick.get("release_date", "")[:4],
+                "tmdbID": pick.get("id"),
+                "imdbID": None,
+                "Plot": pick.get("overview"),
+                "Poster": f"https://image.tmdb.org/t/p/w500{pick.get('poster_path')}" if pick.get("poster_path") else None
+            }
 
         print("\n🔍 Movie match:")
         print(f"   Title: {movie['Title']} ({movie['Year']})")
         print(f"   TMDB:  https://www.themoviedb.org/movie/{movie['tmdbID']}")
+        if movie.get('imdbID'):
+            print(f"   IMDb:  https://www.imdb.com/title/{movie['imdbID']}/")
 
         confirm = input("👉 Is this the correct movie? [Y/n]: ").strip().lower()
         if confirm in ("", "y", "yes"):
@@ -1963,18 +1984,23 @@ def main():
         results = tmdb_search(guess)
 
         if results:
-            # Take first result and convert to our format
+            # Take first result and get full details (including IMDb ID)
             pick = results[0]
-            movie = {
-                "Title": pick.get("title"),
-                "Year": pick.get("release_date", "")[:4],
-                "tmdbID": pick.get("id"),
-                "imdbID": None,
-                "Plot": pick.get("overview"),
-            }
+            movie = tmdb_get_movie(pick.get("id"))
+            if not movie:
+                # Fallback if details fetch fails
+                movie = {
+                    "Title": pick.get("title"),
+                    "Year": pick.get("release_date", "")[:4],
+                    "tmdbID": pick.get("id"),
+                    "imdbID": None,
+                    "Plot": pick.get("overview"),
+                }
             print("\n🔍 Found via disc name:")
             print(f"   Title: {movie['Title']} ({movie['Year']})")
             print(f"   TMDB:  https://www.themoviedb.org/movie/{movie['tmdbID']}")
+            if movie.get('imdbID'):
+                print(f"   IMDb:  https://www.imdb.com/title/{movie['imdbID']}/")
             resp = input("👉 Is this correct? [Y/n]: ").strip().lower()
             if resp not in ("", "y", "yes"):
                 movie = interactive_imdb_search()

@@ -1,9 +1,12 @@
 # includes/metadata_layout.py
+import os
 import time
 import requests
 
-import os
-DISCFINDER_API = os.getenv("DISCFINDER_API", "https://disc-api.bylund.cloud")
+
+def _get_api_url():
+    """Get API URL lazily to ensure dotenv is loaded first"""
+    return os.getenv("DISCFINDER_API", "https://disc-api.bylund.cloud")
 
 
 def wait_for_metadata_layout_ready(checksum: str, poll_interval: int = 3):
@@ -18,7 +21,7 @@ def wait_for_metadata_layout_ready(checksum: str, poll_interval: int = 3):
 
     while True:
         r = requests.get(
-            f"{DISCFINDER_API}/metadata-layout/{checksum}",
+            f"{_get_api_url()}/metadata-layout/{checksum}",
             timeout=5,
         )
 
@@ -52,7 +55,7 @@ def ensure_metadata_layout(checksum: str, disc_type: str, movie: dict):
     }
 
     r = requests.post(
-        f"{DISCFINDER_API}/metadata-layout/{checksum}",
+        f"{_get_api_url()}/metadata-layout/{checksum}",
         json=payload,
         timeout=5,
     )

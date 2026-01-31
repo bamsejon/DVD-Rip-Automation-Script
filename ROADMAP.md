@@ -3,98 +3,98 @@
 ## Releases
 
 ### v1.0 - Initial Release
-- Movie ripping med OMDB
+- Movie ripping with OMDB
 - Metadata admin UI
 - Track selection (audio/subtitles)
-- Extras support med Plex-naming
-- Preview server för rippade filer
+- Extras support with Plex naming
+- Preview server for ripped files
 
 ### v1.1 - TMDB Migration
-- Ersätt OMDB med TMDB
-- Proxy endpoints i disc-api (`/search/movie`, `/search/tv`)
-- Ingen API-nyckel för användare
-- Ta bort OMDB-inställning från settings-sidan
-- Ta bort `OMDB_API_KEY` från user-modellen
+- Replace OMDB with TMDB
+- Proxy endpoints in disc-api (`/search/movie`, `/search/tv`)
+- No API key required for users
+- Remove OMDB settings from settings page
+- Remove `OMDB_API_KEY` from user model
 
 ### v1.2 - Media Server Notifications
-- Settings: Konfigurera Jellyfin/Plex URL + API token
-- Efter encode → trigga library refresh via API
-- Targeted scan (bara den mappen)
-- Stöd för Jellyfin + Plex
+- Settings: Configure Jellyfin/Plex URL + API token
+- After encode → trigger library refresh via API
+- Targeted scan (specific folder only)
+- Support for Jellyfin + Plex
 
 ### v1.3 - Multi-disc Support
-- Fråga "Main disc / Secondary disc" efter filmidentifiering
-- Länka sekundär disc till huvuddisc via IMDB-id
-- `parent_checksum` + `disc_number` i databas
-- Extras från disc 2 → samma mapp med `[Disc 2]` prefix
+- Prompt "Main disc / Secondary disc" after movie identification
+- Link secondary disc to main disc via IMDB ID
+- `parent_checksum` + `disc_number` in database
+- Extras from disc 2 → same folder with `[Disc 2]` prefix
 
 ### v1.4 - TV Series Support
-- Serie-läge i script (minimal input: serienamn + säsong)
-- Metadata admin UI för episod-mappning
-- Auto-match på duration
-- Plex-naming: `Show - S01E01 - Title.mkv`
-- TMDB integration för episoddata
+- Series mode in script (minimal input: series name + season)
+- Metadata admin UI for episode mapping
+- Auto-match on duration
+- Plex naming: `Show - S01E01 - Title.mkv`
+- TMDB integration for episode data
 
 ### v1.5 - Multi-language Support
-- Flerspråksstöd för keepedia.org
-- Svenska, Engelska, + fler språk
-- Språkval i settings
-- Översättning av metadata admin UI
-- Lokaliserade felmeddelanden i ripper script
+- Multi-language support for keepedia.org
+- Swedish, English, + more languages
+- Language selection in settings
+- Translation of metadata admin UI
+- Localized error messages in ripper script
 
 ---
 
-## Framtida Features (backlog)
+## Future Features (backlog)
 
 ### keepedia.org
 
 **"My Discs" Redesign - Video Store Theme**
-- Retro videobutiks-känsla
-- Vyer: Hyllvy, Listvy, Detaljvy
-- Sortering: Genre, År, Format, A-Ö
-- Filter på DVD/Blu-ray/4K
-- "New Arrivals" och "Staff Picks" sektioner
+- Retro video store vibe
+- Views: Shelf view, List view, Detail view
+- Sorting: Genre, Year, Format, A-Z
+- Filter by DVD/Blu-ray/4K
+- "New Arrivals" and "Staff Picks" sections
 
-**3D-fodral**
-- Cover wrappas runt framsida + rygg
-- Hover → rotera och visa ryggen
-- Klick → öppna fodralet (animation)
-- Olika tjocklek för DVD/Blu-ray/Box-set
-- Glansig plasteffekt
+**3D Cases**
+- Cover wraps around front + spine
+- Hover → rotate and show spine
+- Click → open case (animation)
+- Different thickness for DVD/Blu-ray/Box-set
+- Glossy plastic effect
 
 **Physical Shelf Organizer**
-- Definiera din hylla (fack, hyllplan)
-- Generera placeringsguide baserat på sortering
-- Skriv ut etiketter för hyllfack
-- "Var ska jag ställa denna?" - förslag för ny disc
-- Visualisering av fysiska hyllan med covers
+- Define your shelf (slots, shelves)
+- Generate placement guide based on sorting
+- Print labels for shelf slots
+- "Where should I put this?" - suggestions for new disc
+- Visualization of physical shelf with covers
 
 ---
 
 ### Jellyfin/Plex Plugin
 
 **Keepedia Collection Plugin**
-- Visa rippade discs som fysiska fodral
+- Display ripped discs as physical cases
 - DVD/Blu-ray/4K badges
-- Multi-disc boxar som box-set
-- Tydlig extras-sektion med kategorier
-- Visa vilken disc varje extra kommer från
-- Länk till keepedia.org för mer info
-- Publicera i plugin marketplace
+- Multi-disc boxes as box-set
+- Clear extras section with categories
+- Show which disc each extra comes from
+- Link to keepedia.org for more info
+- Publish in plugin marketplace
 
 ---
 
 ### Ripping Station
 
-**Bootbar USB-image**
+**Bootable USB Image**
 - Minimal Linux (Debian/Ubuntu LTS)
-- Förinstallerat: MakeMKV, HandBrake, mkvtoolnix
-- Snyggt GUI (Electron/Qt/Web)
+- Pre-installed: MakeMKV, HandBrake, mkvtoolnix
+- Sleek GUI (Electron/Qt/Web)
 - Auto-detect DVD/Blu-ray drive
-- WiFi-setup wizard
-- Ladda ner .iso från keepedia.org
+- WiFi setup wizard
+- Download .iso from keepedia.org
 
 **Media Server Auto-detect**
-- Hitta Jellyfin/Plex på nätverket automatiskt
-- Föreslå bibliotekssökvägar
-- Ett-klicks-konfiguration
+- Find Jellyfin/Plex on network automatically
+- Suggest library paths
+- One-click configuration

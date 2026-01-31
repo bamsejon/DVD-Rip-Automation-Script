@@ -16,6 +16,9 @@ _DISC_ERROR_SUBSTRINGS = (
     "lec uncorrectable",
 )
 
+# Pattern to detect angle announcements: "Angle #2 was added for title #3"
+_ANGLE_RE = re.compile(r"Angle #(\d+) was added for title #(\d+)", re.IGNORECASE)
+
 # Typical MakeMKV output patterns
 # TINFO: title_index, attribute_id, attribute_type, "value"
 #   TINFO:0,9,0,"01:46:20"
@@ -454,9 +457,17 @@ def scan_titles_with_makemkv(make_mkv_path: str) -> List[Dict[str, Any]]:
     # Structure: {title_index: {stream_index: {attr_id: value}}}
     titles_sinfo: Dict[int, Dict[int, Dict[int, str]]] = {}
 
+    # Track if angles were detected (indicates some titles may be duplicates)
+    angles_detected = False
+
     for line in output_lines:
         line = line.strip()
         if not line:
+            continue
+
+        # Check for angle announcement (e.g., "Angle #2 was added for title #3")
+        if _ANGLE_RE.search(line):
+            angles_detected = True
             continue
 
         # Parse TINFO
@@ -545,5 +556,33 @@ def scan_titles_with_makemkv(make_mkv_path: str) -> List[Dict[str, Any]]:
                 "sinfo": sinfo,
             },
         })
+
+    # Filter out angle duplicates if angles were detected
+    # Angles are alternate camera views of the same content - same duration, different title_index
+    # MakeMKV only rips the first angle, so we should only report one title per unique duration
+    if angles_detected and len(results) > 1:
+        print("\n⚠️  Multiple angles detected - filtering duplicates...")
+
+        # Group by duration (angles have identical duration)
+        seen_durations: Dict[Optional[int], int] = {}  # duration -> first title_index
+        filtered_results: List[Dict[str, Any]] = []
+        skipped_angles: List[int] = []
+
+        for item in results:
+            duration = item.get("duration_seconds")
+            title_idx = item.get("title_index")
+
+            if duration in seen_durations:
+                # This is likely an angle duplicate - skip it
+                skipped_angles.append(title_idx)
+            else:
+                seen_durations[duration] = title_idx
+                filtered_results.append(item)
+
+        if skipped_angles:
+            print(f"   Skipped angle duplicates: title_index {skipped_angles}")
+            print(f"   Keeping {len(filtered_results)} unique title(s)")
+
+        return filtered_results
 
     return results
